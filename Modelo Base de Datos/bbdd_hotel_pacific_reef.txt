@@ -1,0 +1,147 @@
+CREATE DATABASE IF NOT EXISTS hotel_pacific_reef;
+USE hotel_pacific_reef;
+
+-- ==========================
+-- TABLA ROL
+-- ==========================
+
+CREATE TABLE rol (
+    idRol INT AUTO_INCREMENT PRIMARY KEY,
+    descripcion VARCHAR(50) NOT NULL
+);
+
+-- ==========================
+-- TABLA CLIENTE
+-- ==========================
+
+CREATE TABLE cliente (
+    idCliente INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    apellido VARCHAR(100) NOT NULL,
+    run VARCHAR(12) UNIQUE,
+    email VARCHAR(150) UNIQUE NOT NULL,
+    telefono VARCHAR(20),
+    direccion VARCHAR(255),
+    password VARCHAR(255) NOT NULL,
+    estado BOOLEAN DEFAULT TRUE,
+    idRol INT NOT NULL,
+
+    CONSTRAINT fk_cliente_rol
+        FOREIGN KEY (idRol)
+        REFERENCES rol(idRol)
+);
+
+-- ==========================
+-- TABLA EMPLEADO
+-- ==========================
+
+CREATE TABLE empleado (
+    idEmpleado INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    apellido VARCHAR(100) NOT NULL,
+    run VARCHAR(12) UNIQUE,
+    email VARCHAR(150) UNIQUE NOT NULL,
+    telefono VARCHAR(20),
+    password VARCHAR(255) NOT NULL,
+    estado BOOLEAN DEFAULT TRUE,
+    idRol INT NOT NULL,
+
+    CONSTRAINT fk_empleado_rol
+        FOREIGN KEY (idRol)
+        REFERENCES rol(idRol)
+);
+
+-- ==========================
+-- TABLA CATEGORIA
+-- ==========================
+
+CREATE TABLE categoria (
+    idCategoria INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(50) NOT NULL,
+    descripcion VARCHAR(255)
+);
+
+-- ==========================
+-- TABLA HABITACION
+-- ==========================
+
+CREATE TABLE habitacion (
+    idHabitacion INT AUTO_INCREMENT PRIMARY KEY,
+    numero VARCHAR(10) NOT NULL,
+    piso INT NOT NULL,
+    descripcion TEXT,
+    equipamiento TEXT,
+    valorDiario DECIMAL(10,2) NOT NULL,
+    estado VARCHAR(30) DEFAULT 'Disponible',
+
+    idCategoria INT NOT NULL,
+
+    CONSTRAINT fk_habitacion_categoria
+        FOREIGN KEY (idCategoria)
+        REFERENCES categoria(idCategoria)
+);
+
+-- ==========================
+-- TABLA RESERVA
+-- ==========================
+
+CREATE TABLE reserva (
+    idReserva INT AUTO_INCREMENT PRIMARY KEY,
+
+    fechaReserva DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fechaIngreso DATE NOT NULL,
+    fechaSalida DATE NOT NULL,
+    cantidadDias INT NOT NULL,
+
+    valorTotal DECIMAL(10,2) NOT NULL,
+    valorAnticipo DECIMAL(10,2) NOT NULL,
+
+    estado VARCHAR(30) DEFAULT 'Pendiente',
+
+    idHabitacion INT NOT NULL,
+    idCliente INT NOT NULL,
+
+    CONSTRAINT fk_reserva_habitacion
+        FOREIGN KEY (idHabitacion)
+        REFERENCES habitacion(idHabitacion),
+
+    CONSTRAINT fk_reserva_cliente
+        FOREIGN KEY (idCliente)
+        REFERENCES cliente(idCliente)
+);
+
+-- ==========================
+-- TABLA TICKET
+-- ==========================
+
+CREATE TABLE ticket (
+    idTicket INT AUTO_INCREMENT PRIMARY KEY,
+
+    fechaEmision DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    codigo VARCHAR(255) NOT NULL,
+
+    idReserva INT UNIQUE NOT NULL,
+
+    CONSTRAINT fk_ticket_reserva
+        FOREIGN KEY (idReserva)
+        REFERENCES reserva(idReserva)
+);
+
+-- ==========================
+-- TABLA PAGO
+-- ==========================
+
+CREATE TABLE pago (
+    idPago INT AUTO_INCREMENT PRIMARY KEY,
+
+    fechaPago DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    monto DECIMAL(10,2) NOT NULL,
+
+    estado VARCHAR(30) DEFAULT 'Pagado',
+
+    idReserva INT UNIQUE NOT NULL,
+
+    CONSTRAINT fk_pago_reserva
+        FOREIGN KEY (idReserva)
+        REFERENCES reserva(idReserva)
+);

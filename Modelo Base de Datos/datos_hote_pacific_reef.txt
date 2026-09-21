@@ -1,0 +1,250 @@
+INSERT INTO rol (descripcion)
+VALUES
+('Administrador'),
+('Empleado'),
+('Cliente');
+
+INSERT INTO categoria(nombre, descripcion)
+VALUES
+('Turista', 'Habitación estándar'),
+('Premium', 'Habitación premium');
+
+INSERT INTO empleado
+(
+    nombre,
+    apellido,
+    run,
+    email,
+    telefono,
+    password,
+    estado,
+    idRol
+)
+VALUES
+(
+    'Carlos',
+    'Gonzalez',
+    '11111111-1',
+    'admin@pacificreef.cl',
+    '912345678',
+    'Admin123',
+    TRUE,
+    1
+);
+INSERT INTO empleado
+(
+    nombre,
+    apellido,
+    run,
+    email,
+    telefono,
+    password,
+    estado,
+    idRol
+)
+VALUES
+('Juan','Pérez','22222222-2','jperez@pacificreef.cl','911111111','Empleado123',TRUE,2),
+
+('María','Rojas','33333333-3','mrojas@pacificreef.cl','922222222','Empleado123',TRUE,2),
+
+('Pedro','Soto','44444444-4','psoto@pacificreef.cl','933333333','Empleado123',TRUE,2),
+
+('Ana','Torres','55555555-5','atorres@pacificreef.cl','944444444','Empleado123',TRUE,2),
+
+('Luis','Contreras','66666666-6','lcontreras@pacificreef.cl','955555555','Empleado123',TRUE,2);
+
+INSERT INTO cliente
+(
+    nombre,
+    apellido,
+    run,
+    email,
+    telefono,
+    direccion,
+    password,
+    estado,
+    idRol
+)
+VALUES
+(
+    'Matías',
+    'Fernández',
+    '77777777-7',
+    'mfernandez@email.cl',
+    '961111111',
+    'Av. Central 123',
+    'Cliente123',
+    TRUE,
+    3
+),
+
+(
+    'Camila',
+    'Muñoz',
+    '88888888-8',
+    'cmunoz@email.cl',
+    '962222222',
+    'Los Olivos 456',
+    'Cliente123',
+    TRUE,
+    3
+),
+
+(
+    'Diego',
+    'Vargas',
+    '99999999-9',
+    'dvargas@email.cl',
+    '963333333',
+    'Pasaje Norte 789',
+    'Cliente123',
+    TRUE,
+    3
+),
+
+(
+    'Valentina',
+    'Morales',
+    '10101010-1',
+    'vmorales@email.cl',
+    '964444444',
+    'Villa Sur 321',
+    'Cliente123',
+    TRUE,
+    3
+),
+
+(
+    'Sebastián',
+    'Castillo',
+    '12121212-2',
+    'scastillo@email.cl',
+    '965555555',
+    'Las Palmas 654',
+    'Cliente123',
+    TRUE,
+    3
+);
+
+INSERT INTO habitacion
+(numero, piso, descripcion, equipamiento, valorDiario, estado, idCategoria, idEmpleado)
+VALUES
+
+-- PISO 1 (Turista)
+('101',1,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,2),
+('102',1,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,3),
+('103',1,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,4),
+('104',1,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,5),
+('105',1,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,6),
+('106',1,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,2),
+
+-- PISO 2 (Turista)
+('201',2,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,3),
+('202',2,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,4),
+('203',2,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,5),
+('204',2,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,6),
+('205',2,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,2),
+('206',2,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,3),
+
+-- PISO 3 (Turista)
+('301',3,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,4),
+('302',3,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,5),
+('303',3,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,6),
+('304',3,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,2),
+('305',3,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,3),
+('306',3,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,4),
+
+-- PISO 4 (Turista)
+('401',4,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,5),
+('402',4,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,6),
+('403',4,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,2),
+('404',4,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,3),
+('405',4,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,4),
+('406',4,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,5),
+
+-- PISO 5 (Turista)
+('501',5,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,6),
+('502',5,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,2),
+('503',5,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,3),
+('504',5,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,4),
+('505',5,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,5),
+('506',5,'Habitación Turista','TV, WiFi, Aire acondicionado',50000,'Disponible',1,6),
+
+-- PISO 6 (Premium)
+('601',6,'Habitación Premium','TV Smart, WiFi, Jacuzzi, Minibar',120000,'Disponible',2,2),
+('602',6,'Habitación Premium','TV Smart, WiFi, Jacuzzi, Minibar',120000,'Disponible',2,3),
+('603',6,'Habitación Premium','TV Smart, WiFi, Jacuzzi, Minibar',120000,'Disponible',2,4),
+('604',6,'Habitación Premium','TV Smart, WiFi, Jacuzzi, Minibar',120000,'Disponible',2,5),
+
+-- PISO 7 (Premium)
+('701',7,'Habitación Premium','TV Smart, WiFi, Jacuzzi, Minibar',120000,'Disponible',2,6),
+('702',7,'Habitación Premium','TV Smart, WiFi, Jacuzzi, Minibar',120000,'Disponible',2,2),
+('703',7,'Habitación Premium','TV Smart, WiFi, Jacuzzi, Minibar',120000,'Disponible',2,3),
+('704',7,'Habitación Premium','TV Smart, WiFi, Jacuzzi, Minibar',120000,'Disponible',2,4);
+
+INSERT INTO reserva
+(
+    fechaReserva,
+    fechaIngreso,
+    fechaSalida,
+    cantidadDias,
+    valorTotal,
+    valorAnticipo,
+    estado,
+    idHabitacion,
+    idCliente
+)
+VALUES
+
+-- Cliente 1 -> Habitación Premium 601
+(
+    NOW(),
+    CURDATE(),
+    DATE_ADD(CURDATE(), INTERVAL 12 DAY),
+    12,
+    1440000.00,
+    432000.00,
+    'Confirmada',
+    31,
+    1
+),
+
+-- Cliente 2 -> Habitación Premium 602
+(
+    NOW(),
+    CURDATE(),
+    DATE_ADD(CURDATE(), INTERVAL 12 DAY),
+    12,
+    1440000.00,
+    432000.00,
+    'Confirmada',
+    32,
+    2
+),
+
+-- Cliente 3 -> Habitación Turista 101
+(
+    NOW(),
+    CURDATE(),
+    DATE_ADD(CURDATE(), INTERVAL 12 DAY),
+    12,
+    600000.00,
+    180000.00,
+    'Confirmada',
+    1,
+    3
+);
+
+INSERT INTO pago
+(fechaPago,monto,estado,idReserva)
+VALUES
+(NOW(),432000.00,'Pagado',1),
+(NOW(),432000.00,'Pagado',2),
+(NOW(),180000.00,'Pagado',3);
+
+INSERT INTO ticket
+(fechaEmision,codigo,idReserva)
+VALUES
+(NOW(),'QR-RES-000001',1),
+(NOW(),'QR-RES-000002',2),
+(NOW(),'QR-RES-000003',3);
