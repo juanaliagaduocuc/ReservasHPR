@@ -8,6 +8,47 @@ if (!isset($_SESSION['cliente'], $_SESSION['idCliente'])) {
 
 require_once '../config/database.php';
 
+$_SESSION['csrfCancelacion'] = $_SESSION['csrfCancelacion'] ?? bin2hex(random_bytes(32));
+$mensajeCancelacion = $_SESSION['mensajeCancelacion'] ?? '';
+unset($_SESSION['mensajeCancelacion']);
+$idCliente = (int) $_SESSION['idCliente'];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cancelar_reserva') {
+    $token = $_POST['csrfCancelacion'] ?? '';
+    $idReserva = filter_var($_POST['idReserva'] ?? null, FILTER_VALIDATE_INT);
+
+    if (!is_string($token) || !hash_equals($_SESSION['csrfCancelacion'], $token)) {
+        $_SESSION['mensajeCancelacion'] = 'La solicitud expiró. Actualiza la página e inténtalo de nuevo.';
+    } elseif (!$idReserva) {
+        $_SESSION['mensajeCancelacion'] = 'No se pudo identificar la reserva.';
+    } else {
+        $cancelar = $conn->prepare(
+            "UPDATE reserva SET estado = 'Cancelada'
+             WHERE idReserva = ? AND idCliente = ? AND estado <> 'Cancelada'
+               AND fechaIngreso > DATE_ADD(CURDATE(), INTERVAL 1 DAY)"
+        );
+
+        if (!$cancelar) {
+            die('No se pudo preparar la cancelación: ' . $conn->error);
+        }
+
+        $cancelar->bind_param('ii', $idReserva, $idCliente);
+        if (!$cancelar->execute()) {
+            die('No se pudo cancelar la reserva: ' . $cancelar->error);
+        }
+
+        if ($cancelar->affected_rows === 1) {
+            $_SESSION['mensajeCancelacion'] = 'La reserva fue cancelada correctamente.';
+        } else {
+            $_SESSION['mensajeCancelacion'] = 'No se pudo cancelar: la reserva no existe, ya fue cancelada o el ingreso es mañana o ya pasó.';
+        }
+        $cancelar->close();
+    }
+
+    header('Location: mis_reservas.php');
+    exit();
+}
+
 $stmt = $conn->prepare(
     "SELECT r.idReserva, r.fechaIngreso, r.fechaSalida, r.cantidadDias,
             r.valorTotal, r.valorAnticipo, r.estado, h.numero, c.nombre AS categoria
@@ -22,7 +63,6 @@ if (!$stmt) {
     die('No se pudieron consultar tus reservas: ' . $conn->error);
 }
 
-$idCliente = (int) $_SESSION['idCliente'];
 $stmt->bind_param('i', $idCliente);
 
 if (!$stmt->execute()) {
@@ -52,27 +92,9 @@ function estadoReservaCliente($estado, $ingreso, $salida)
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mis reservas | Hotel Pacific Reef</title>
-    <style>
-        :root { --text: #123c3a; --line: rgba(18,60,58,.2); --sand: #e5e0d9; --teal: #0f4f57; }
-        * { box-sizing: border-box; }
-        body { margin: 0; min-height: 100vh; background: linear-gradient(180deg,#e2e4e0 0%,var(--sand) 100%); color: var(--text); font-family: 'Segoe UI',sans-serif; }
-        .topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 2rem; background: rgba(246,244,240,.96); border-block: 2px solid rgba(13,123,154,.7); }
-        .brand { color: var(--text); text-decoration: none; text-transform: uppercase; font-weight: 700; letter-spacing: .06em; }
-        .back { color: var(--text); text-decoration: none; border: 1px solid rgba(14,81,93,.5); border-radius: 999px; padding: .55rem 1rem; }
-        main { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
-        h1 { margin: 0 0 .4rem; font-family: Georgia,serif; font-size: clamp(2.5rem,5vw,4rem); }
-        .intro { margin: 0 0 1.5rem; color: rgba(18,60,58,.75); }
-        .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 1rem; background: rgba(255,255,255,.35); }
-        table { width: 100%; border-collapse: collapse; min-width: 760px; }
-        th,td { padding: .9rem 1rem; text-align: left; border-bottom: 1px solid var(--line); }
-        th { background: rgba(10,75,82,.94); color: #f5efe7; }
-        tr:last-child td { border-bottom: 0; }
-        .status { display: inline-block; padding: .35rem .7rem; border: 1px solid var(--line); border-radius: 999px; font-size: .85rem; }
-        .empty { padding: 2rem; text-align: center; color: rgba(18,60,58,.7); }
-        @media (max-width: 600px) { .topbar { padding: 1rem; flex-wrap: wrap; } }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="page-reservas">
     <header class="topbar">
         <a href="cliente.php" class="brand">Hotel Pacific Reef</a>
         <a href="habitaciones.php" class="back">Volver a habitaciones</a>
@@ -80,6 +102,9 @@ function estadoReservaCliente($estado, $ingreso, $salida)
     <main>
         <h1>Mis reservas</h1>
         <p class="intro">Consulta tus estadías, fechas e importes.</p>
+        <?php if ($mensajeCancelacion !== ''): ?>
+            <div class="notice" role="status"><?php echo htmlspecialchars($mensajeCancelacion); ?></div>
+        <?php endif; ?>
         <div class="table-wrap">
             <?php if ($reservas->num_rows > 0): ?>
                 <table>
@@ -93,10 +118,18 @@ function estadoReservaCliente($estado, $ingreso, $salida)
                             <th>Total</th>
                             <th>Anticipo</th>
                             <th>Estado</th>
+                            <th>Acción</th>
                         </tr>
                     </thead>
                     <tbody>
+                        <?php $numeroFila = 0; ?>
                         <?php while ($reserva = $reservas->fetch_assoc()): ?>
+                            <?php
+                            $numeroFila++;
+                            $estadoReserva = estadoReservaCliente($reserva['estado'], $reserva['fechaIngreso'], $reserva['fechaSalida']);
+                            $puedeCancelar = $reserva['estado'] !== 'Cancelada'
+                                && $reserva['fechaIngreso'] > date('Y-m-d', strtotime('+1 day'));
+                            ?>
                             <tr>
                                 <td><?php echo htmlspecialchars($reserva['numero']); ?></td>
                                 <td><?php echo htmlspecialchars($reserva['categoria'] ?? ''); ?></td>
@@ -105,7 +138,19 @@ function estadoReservaCliente($estado, $ingreso, $salida)
                                 <td><?php echo (int) $reserva['cantidadDias']; ?></td>
                                 <td>$ <?php echo number_format((float) $reserva['valorTotal'], 0, ',', '.'); ?></td>
                                 <td>$ <?php echo number_format((float) $reserva['valorAnticipo'], 0, ',', '.'); ?></td>
-                                <td><span class="status"><?php echo htmlspecialchars(estadoReservaCliente($reserva['estado'], $reserva['fechaIngreso'], $reserva['fechaSalida'])); ?></span></td>
+                                <td id="estado-<?php echo $numeroFila; ?>"><span class="status"><?php echo htmlspecialchars($estadoReserva); ?></span></td>
+                                <td>
+                                    <?php if ($puedeCancelar): ?>
+                                        <form class="cancel-form" method="POST" onsubmit="return confirm('¿Cancelar esta reserva?');">
+                                            <input type="hidden" name="accion" value="cancelar_reserva">
+                                            <input type="hidden" name="idReserva" value="<?php echo (int) $reserva['idReserva']; ?>">
+                                            <input type="hidden" name="csrfCancelacion" value="<?php echo htmlspecialchars($_SESSION['csrfCancelacion']); ?>">
+                                            <button class="cancel-button" type="submit">Cancelar</button>
+                                        </form>
+                                    <?php else: ?>
+                                        <span>—</span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                         <?php endwhile; ?>
                     </tbody>

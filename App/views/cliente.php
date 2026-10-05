@@ -122,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', $a
                 $stmt->close();
                 $conn->commit();
                 $transaccionActiva = false;
-                $_SESSION['mensajeReserva'] = 'Reserva confirmada correctamente.';
+                $_SESSION['mensajeReserva'] = '¡La reserva ha sido exitosa!';
                 header('Location: cliente.php');
                 exit();
             }
@@ -207,104 +207,9 @@ function formatPrice($valor)
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-sand: #e5e0d9;
-            --text: #123c3a;
-            --text-warm: #f1efe7;
-            --muted: rgba(18, 60, 58, 0.7);
-            --green: #0f6a6d;
-        }
-
-        * { box-sizing: border-box; }
-        html, body { margin: 0; min-height: 100%; background: var(--bg-sand); color: var(--text); font-family: 'Inter', sans-serif; }
-        .page-shell { max-width: 1600px; margin: 0 auto; background: var(--bg-sand); }
-        .topbar {
-            background: rgba(246, 244, 240, 0.96);
-            border: 2px solid rgba(13, 123, 154, 0.7);
-            border-left: none; border-right: none;
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 1.05rem 2.2rem 0.95rem; position: sticky; top: 0; z-index: 20;
-        }
-        .brand { display: inline-flex; align-items: center; gap: 0.8rem; font-weight: 600; letter-spacing: 0.06em; font-size: 1.05rem; text-transform: uppercase; color: var(--text); text-decoration: none; font-family: 'Cormorant Garamond', serif; }
-        .brand-mark { width: 1.1rem; height: 1.1rem; border: 2px solid rgba(14, 81, 93, 0.9); border-radius: 50%; display: inline-block; position: relative; }
-        .brand-mark::after { content: ""; position: absolute; inset: 0.2rem; border-radius: 50%; border: 1px solid rgba(14,81,93,0.9); }
-        .top-nav { display: flex; align-items: center; gap: 1.1rem; font-size: 0.84rem; text-transform: uppercase; }
-        .top-nav a { color: var(--text); text-decoration: none; padding: 0.5rem 0.9rem; border: 1px solid rgba(14, 81, 93, 0.5); border-radius: 999px; background: transparent; }
-        .top-nav .cta { background: rgba(11, 65, 67, 0.06); border-color: rgba(13, 123, 154, 0.85); font-weight: 700; letter-spacing: 0.08em; padding-inline: 1.2rem; }
-        .hero { position: relative; min-height: 610px; background: linear-gradient(90deg, rgba(4,21,22,0.76) 0%, rgba(8,31,34,0.56) 35%, rgba(8,31,34,0.36) 100%), url('https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1600&q=80') center/cover no-repeat; color: var(--text-warm); padding: 4.2rem 3.8rem 2.6rem; }
-        .hero-inner { max-width: 1220px; margin: 0 auto; }
-        .hero-tag { display: inline-block; font-size: 0.73rem; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(247, 242, 234, 0.9); margin-bottom: 1.2rem; font-weight: 600; }
-        .hero h1 { margin: 0; max-width: 1100px; font-family: 'Cormorant Garamond', serif; font-size: clamp(3.1rem, 5vw, 6rem); line-height: 0.9; letter-spacing: -0.05em; font-weight: 500; color: #f5efe7; }
-        .hero-copy { max-width: 800px; margin-top: 1.5rem; font-size: 1.05rem; line-height: 1.5; color: rgba(246,241,235,0.9); }
-        .chip-row { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: 2rem; }
-        .chip { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.52rem 0.9rem; border-radius: 999px; background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.28); font-size: 0.78rem; color: rgba(245,239,231,0.94); }
-        .check { width: 0.82rem; height: 0.82rem; border-radius: 50%; border: 1px solid rgba(255,255,255,0.84); display: inline-block; position: relative; }
-        .check::after { content: ""; position: absolute; inset: 0.16rem; border-radius: 50%; background: rgba(255,255,255,0.9); }
-        .content-wrap { padding: 2.6rem 2.2rem 0; background: var(--bg-sand); }
-        .selector { max-width: 1220px; margin: 0 auto; background: rgba(255,255,255,0.2); border: 1px solid rgba(16,78,90,0.25); border-radius: 999px; padding: 0.45rem; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; box-shadow: 0 6px 18px rgba(18, 60, 58, 0.08); }
-        .selector-option { appearance: none; border: none; background: transparent; padding: 1rem 1.2rem; border-radius: 999px; color: var(--text); font-size: 1rem; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 0.72rem; cursor: pointer; }
-        .selector-option .icon { width: 1.45rem; height: 1.45rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(18,60,58,0.4); font-size: 0.8rem; background: rgba(255,255,255,0.22); }
-        .selector-option.active { background: linear-gradient(180deg, rgba(7,72,78,1), rgba(13,95,87,1)); color: #f6f3ee; }
-        .listing-head { max-width: 1220px; margin: 2.6rem auto 1.3rem; display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
-        .listing-title { margin: 0; font-family: 'Cormorant Garamond', serif; font-size: clamp(2.6rem, 3.2vw, 4rem); line-height: 0.96; letter-spacing: -0.04em; font-weight: 500; color: var(--text); }
-        .listing-sub { margin-top: 0.5rem; color: var(--muted); font-size: 0.92rem; }
-        .sort { border: 1px solid rgba(18,60,58,0.4); border-radius: 999px; padding: 0.7rem 1rem; background: rgba(255,255,255,0.15); color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
-        .type-toolbar { max-width: 1220px; margin: 0 auto 1.2rem; display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; color: var(--muted); }
-        .pill { border: 1px solid rgba(18,60,58,0.35); border-radius: 999px; padding: 0.45rem 0.8rem; font-size: 0.73rem; background: rgba(255,255,255,0.08); color: var(--text); }
-        .room-grid { max-width: 1220px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 1.3rem; padding-bottom: 3.5rem; }
-        .room-card { background: rgba(255,255,255,0.14); border: 1px solid rgba(18,60,58,0.28); border-radius: 1.1rem; overflow: hidden; box-shadow: 0 8px 22px rgba(15, 58, 60, 0.06); }
-        .room-image { height: 235px; background-size: cover; background-position: center; position: relative; }
-        .room-card.unavailable .room-image,
-        .room-card.reserved .room-image { filter: grayscale(1) brightness(0.75); }
-        .room-status { position: absolute; inset: auto 0 0; padding: 0.7rem 1rem; background: rgba(11,45,49,0.82); color: #fff; font-size: 0.82rem; font-weight: 700; text-align: center; }
-        .room-card_body { padding: 1rem 1rem 1.1rem; }
-        .room-meta { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-bottom: 0.8rem; }
-        .room-price { font-size: 1.12rem; font-weight: 700; color: var(--text); }
-        .rating { font-size: 0.82rem; color: var(--text); display: inline-flex; align-items: center; gap: 0.28rem; font-weight: 600; }
-        .room-num { font-size: clamp(2rem, 4vw, 2.8rem); font-family: 'Cormorant Garamond', serif; letter-spacing: -0.04em; line-height: 1; color: var(--text); margin: 0; font-weight: 500; }
-        .room-little { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid rgba(18,60,58,0.22); padding-top: 0.9rem; margin-top: 0.8rem; }
-        .price-tag { display: flex; flex-direction: column; gap: 0.18rem; color: var(--text); }
-        .price-tag strong { font-size: 1.1rem; font-weight: 700; }
-        .price-tag span { font-size: 0.7rem; color: var(--muted); text-transform: lowercase; }
-        .reserve-btn { border: 1px solid rgba(11, 90, 97, 0.65); background: rgba(14, 81, 93, 0.04); color: var(--green); border-radius: 999px; padding: 0.7rem 1.1rem; font-size: 0.76rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
-        .room-card.unavailable .reserve-btn { border-color: #777; color: #555; }
-        .availability-panel { border-top: 1px solid rgba(18,60,58,0.22); padding: 1rem; }
-        .availability-summary { margin-bottom: 0.9rem; font-size: 0.85rem; line-height: 1.5; }
-        .booking-search { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin: 0.8rem 0; }
-        .booking-search label { display: block; margin-bottom: 0.25rem; font-size: 0.78rem; }
-        .booking-search input[type="date"] { width: 100%; min-height: 2.5rem; border: 1px solid rgba(18,60,58,0.35); border-radius: 0.6rem; padding: 0.4rem; background: rgba(255,255,255,0.75); color: var(--text); }
-        .booking-search .reserve-btn { grid-column: 1 / -1; width: 100%; }
-        .calendar-controls { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; }
-        .calendar-nav { border: 1px solid rgba(18,60,58,0.35); border-radius: 50%; background: transparent; color: var(--text); width: 2rem; height: 2rem; cursor: pointer; font-size: 1.2rem; }
-        .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.25rem; text-align: center; font-size: 0.78rem; }
-        .calendar-day { min-height: 2rem; display: grid; place-items: center; border-radius: 50%; }
-        .calendar-weekday { color: var(--muted); font-size: 0.68rem; font-weight: 700; }
-        .calendar-day.booked { background: #777; color: #fff; }
-        .calendar-legend { display: flex; align-items: center; gap: 0.45rem; margin-top: 0.65rem; color: var(--muted); font-size: 0.75rem; }
-        .calendar-legend span { width: 0.8rem; height: 0.8rem; border-radius: 50%; background: #777; }
-        .journey { max-width: 1220px; margin: 0 auto; display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.4rem; padding-bottom: 2rem; }
-        .experience { background: linear-gradient(rgba(12, 49, 52, 0.48), rgba(12,49,52,0.48)), url('https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1200&q=80') center/cover no-repeat; color: #f5efe7; border-radius: 1.4rem; min-height: 500px; display: flex; flex-direction: column; justify-content: flex-end; padding: 2rem 2rem 1.4rem; border: 1px solid rgba(12, 50, 54, 0.3); }
-        .experience .eyebrow { display: inline-block; width: fit-content; font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; padding: 0.45rem 0.7rem; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.25); }
-        .experience h3 { font-family: 'Cormorant Garamond', serif; font-size: clamp(2.6rem, 3vw, 4rem); margin: 1.1rem 0 0.8rem; letter-spacing: -0.04em; line-height: 0.92; }
-        .experience p { margin: 0; max-width: 520px; line-height: 1.55; color: rgba(245,239,231,0.88); }
-        .experience .cta { margin-top: 1.6rem; width: fit-content; background: transparent; color: #f5efe7; border: 1px solid rgba(245,239,231,0.7); border-radius: 999px; padding: 0.8rem 1.2rem; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.76rem; font-weight: 700; }
-        .journey-card { border-radius: 1.4rem; overflow: hidden; background: rgba(255,255,255,0.15); border: 1px solid rgba(18,60,58,0.2); }
-        .journey-card .image { height: 260px; background: url('https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1200&q=80') center/cover no-repeat; }
-        .journey-card .content { padding: 1.4rem 1.5rem 1.5rem; background: rgba(255,255,255,0.12); }
-        .journey-card h4 { font-family: 'Cormorant Garamond', serif; font-size: clamp(2.2rem, 3vw, 3rem); margin: 0; letter-spacing: -0.04em; color: var(--text); }
-        .journey-card p { margin: 0.8rem 0 1.2rem; color: var(--muted); line-height: 1.5; }
-        .journey-card .cta { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid rgba(12, 78, 88, 0.75); background: rgba(17,94,88,0.05); color: var(--text); padding: 0.7rem 1.2rem; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.74rem; font-weight: 700; text-decoration: none; }
-        .footer-strip { max-width: 1220px; margin: 0 auto; padding: 2rem 0 2.8rem; display: flex; align-items: end; justify-content: space-between; gap: 1rem; border-top: 1px solid rgba(18,60,58,0.18); }
-        .footer-title { margin: 0; font-family: 'Cormorant Garamond', serif; font-size: clamp(2.1rem, 3vw, 3.1rem); letter-spacing: -0.04em; font-weight: 500; color: var(--text); }
-        .footer-sub { margin-top: 0.45rem; color: var(--muted); font-size: 0.85rem; }
-        .footer-links { display: flex; align-items: center; gap: 1.4rem; color: var(--muted); font-size: 0.82rem; }
-        .footer-links a { color: var(--muted); text-decoration: none; }
-        @media (max-width: 1040px) { .hero { padding-left: 1.4rem; padding-right: 1.4rem; } .content-wrap, .listing-head, .type-toolbar, .room-grid, .journey, .footer-strip { max-width: calc(100% - 1.8rem); } .room-grid { grid-template-columns: 1fr 1fr; } }
-        @media (max-width: 760px) { .topbar { flex-wrap: wrap; gap: 0.8rem; padding-inline: 1rem; } .top-nav { width: 100%; justify-content: flex-end; flex-wrap: wrap; } .hero { min-height: 500px; padding-top: 3rem; } .listing-head, .footer-strip { flex-direction: column; align-items: flex-start; } .room-grid, .journey { grid-template-columns: 1fr; } .selector { grid-template-columns: 1fr; } }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="page-cliente">
     <div class="page-shell">
         <header class="topbar">
             <a href="#" class="brand" aria-label="Hotel Pacific Reef">
@@ -316,7 +221,7 @@ function formatPrice($valor)
                 <a href="#">Destinos</a>
                 <a href="#">Hoteles</a>
                 <a href="#">Inspiración</a>
-                <a href="mis_reservas.php" class="cta">Mis reservas</a>
+                <a href="mis_reservas.php" id='cta'  class="cta">Mis reservas</a>
             </nav>
         </header>
 
@@ -336,25 +241,25 @@ function formatPrice($valor)
 
             <div class="content-wrap">
                 <?php if ($mensajeReserva !== ''): ?>
-                    <div class="type-toolbar" role="status"><span class="pill"><?php echo htmlspecialchars($mensajeReserva); ?></span></div>
+                    <div id="mensaje-reserva" class="reservation-success" role="status" aria-live="polite"><?php echo htmlspecialchars($mensajeReserva); ?></div>
                 <?php endif; ?>
                 <?php if ($consultaDisponibilidad !== null): ?>
                     <div class="type-toolbar" role="status"><span class="pill"><?php echo htmlspecialchars($consultaDisponibilidad['mensaje']); ?></span></div>
                 <?php endif; ?>
                 <div class="selector" aria-label="Filtra habitaciones">
-                    <button class="selector-option active" type="button" data-filter="all">
+                    <button id="id" class="selector-option active" type="button" data-filter="all">
                         <span class="icon">◇</span>
                         <span>Todas</span>
                     </button>
-                    <button class="selector-option" type="button" data-filter="reserved">
+                    <button id="reserved" class="selector-option" type="button" data-filter="reserved">
                         <span class="icon">●</span>
                         <span>Reservadas</span>
                     </button>
-                    <button class="selector-option" type="button" data-filter="premium">
+                    <button id="premium" class="selector-option" type="button" data-filter="premium">
                         <span class="icon">◌</span>
                         <span>Premium</span>
                     </button>
-                    <button class="selector-option" type="button" data-filter="economica">
+                    <button id="economica" class="selector-option" type="button" data-filter="economica">
                         <span class="icon">⌂</span>
                         <span>Económica</span>
                     </button>
@@ -421,7 +326,8 @@ function formatPrice($valor)
                             ?>
                             <?php $esResultadoConsulta = $consultaDisponibilidad && (int) $consultaDisponibilidad['idHabitacion'] === (int) $habitacion['idHabitacion']; ?>
                             <article id="habitacion-<?php echo (int) $habitacion['idHabitacion']; ?>" class="room-card<?php echo $noDisponible ? ' unavailable' : ''; ?><?php echo ($reservaActual || $proximaReserva !== null) ? ' reserved' : ''; ?>" data-result="<?php echo $esResultadoConsulta ? 'true' : 'false'; ?>" data-type="<?php echo htmlspecialchars($tipo); ?>">
-                                <div class="room-image" style="background-image: url('<?php echo htmlspecialchars($imagenes[$habitacion['categoria']] ?? $imagenes['Turista']); ?>');">
+                                <div class="room-image">
+                                    <img src="<?php echo htmlspecialchars($imagenes[$habitacion['categoria']] ?? $imagenes['Turista']); ?>" alt="Habitación <?php echo (int) $habitacion['idHabitacion']; ?>">
                                     <?php if ($reservaActual): ?>
                                         <span class="room-status">Reservada · disponible nuevamente desde <?php echo htmlspecialchars(date('d-m-Y', strtotime($disponibleDesde))); ?></span>
                                     <?php elseif ($proximaReserva !== null): ?>
@@ -439,7 +345,7 @@ function formatPrice($valor)
                                             <strong><?php echo htmlspecialchars(formatPrice($precio)); ?></strong>
                                             <span>por noche · tasas incluidas</span>
                                         </div>
-                                        <button class="reserve-btn availability-toggle" type="button" aria-expanded="false" data-availability="<?php echo $disponibilidad; ?>">Consultar disponibilidad</button>
+                                        <button id="consultar-disponibilidad-calendario-<?php echo (int) $habitacion['idHabitacion']; ?>" class="reserve-btn availability-toggle" type="button" aria-expanded="false" data-availability="<?php echo $disponibilidad; ?>">Consultar disponibilidad</button>
                                     </div>
                                 </div>
                                 <section class="availability-panel" <?php echo $esResultadoConsulta ? '' : 'hidden'; ?> aria-label="Calendario de disponibilidad de habitación <?php echo htmlspecialchars($habitacion['numero']); ?>">
@@ -455,7 +361,7 @@ function formatPrice($valor)
                                             <label for="salida-<?php echo (int) $habitacion['idHabitacion']; ?>">Salida</label>
                                             <input id="salida-<?php echo (int) $habitacion['idHabitacion']; ?>" type="date" name="fechaSalida" min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>" value="<?php echo $consultaDisponibilidad && (int) $consultaDisponibilidad['idHabitacion'] === (int) $habitacion['idHabitacion'] ? htmlspecialchars($fechaSalidaConsulta) : date('Y-m-d', strtotime('+1 day')); ?>" required>
                                         </div>
-                                        <button class="reserve-btn" type="submit" name="accion" value="consultar_disponibilidad">Consultar disponibilidad</button>
+                                        <button id="consultar-disponibilidad-fechas-<?php echo (int) $habitacion['idHabitacion']; ?>" class="reserve-btn" type="submit" name="accion" value="consultar_disponibilidad">Consultar disponibilidad</button>
                                     </form>
                                     <?php if ($esResultadoConsulta && $consultaDisponibilidad['disponible']): ?>
                                         <form method="POST" class="booking-search">
@@ -563,6 +469,11 @@ function formatPrice($valor)
         const weekdayNames = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'];
         const monthFormatter = new Intl.DateTimeFormat('es-CL', { month: 'long', year: 'numeric' });
         const dateKey = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const offsetDateKey = (key, days) => {
+            const date = new Date(`${key}T00:00:00Z`);
+            date.setUTCDate(date.getUTCDate() + days);
+            return date.toISOString().slice(0, 10);
+        };
 
         document.querySelectorAll('.availability-toggle').forEach(button => {
             const card = button.closest('.room-card');
@@ -594,7 +505,9 @@ function formatPrice($valor)
                 for (let day = 1; day <= daysInMonth; day++) {
                     const date = new Date(year, monthIndex, day);
                     const key = dateKey(date);
-                    const unavailable = data.bloqueoFijo || data.reservas.some(range => range.inicio <= key && key <= range.fin);
+                    const unavailable = data.bloqueoFijo || data.reservas.some(range =>
+                        offsetDateKey(range.inicio, -1) <= key && key <= offsetDateKey(range.fin, 1)
+                    );
                     const cell = document.createElement('span');
                     cell.className = `calendar-day${unavailable ? ' booked' : ''}`;
                     cell.textContent = day;

@@ -60,6 +60,8 @@ function detectarColumnaFecha($columns, $preferencias)
 }
 
 $mensaje = '';
+$tipoMensaje = 'info';
+$idMensaje = 'mensaje-admin';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accion = $_POST['accion'] ?? '';
@@ -85,9 +87,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($conn->query($sql)) {
-            $mensaje = 'Habitación guardada correctamente.';
+            if ($id !== '') {
+                $mensaje = '¡Habitación actualizada exitosamente!';
+                $tipoMensaje = 'success';
+                $idMensaje = 'mensaje-habitacion-exitoso';
+            } else {
+                $mensaje = 'Habitación guardada correctamente.';
+            }
         } else {
-            $mensaje = 'Error al guardar la habitación: ' . $conn->error;
+            $mensaje = ($id !== '' ? 'No se pudo editar la habitación: ' : 'Error al guardar la habitación: ') . $conn->error;
+            $tipoMensaje = 'danger';
+            $idMensaje = 'mensaje-habitacion-error';
         }
     }
 
@@ -144,20 +154,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($accion === 'guardar_empleado') {
         $id = $_POST['id_empleado'] ?? '';
         $nombre = safeString($conn, $_POST['nombre'] ?? '');
-        $email = safeString($conn, $_POST['email'] ?? '');
+        $email = is_string($_POST['email'] ?? null) ? trim($_POST['email']) : '';
+        $emailSql = safeString($conn, $email);
         $password = safeString($conn, $_POST['password'] ?? '');
         $rol = intval($_POST['idRol'] ?? 2);
 
-        if ($id !== '') {
-            $sql = "UPDATE empleado SET nombre='$nombre', email='$email', password='$password', idRol='$rol' WHERE idEmpleado='$id'";
-        } else {
-            $sql = "INSERT INTO empleado (nombre, email, password, idRol) VALUES ('$nombre', '$email', '$password', '$rol')";
+        $verificarEmail = $conn->prepare('SELECT idEmpleado FROM empleado WHERE email = ? AND idEmpleado <> ? LIMIT 1');
+        if (!$verificarEmail) {
+            throw new RuntimeException('No se pudo verificar el correo del empleado: ' . $conn->error);
         }
+        $idEmpleadoActual = (int) $id;
+        $verificarEmail->bind_param('si', $email, $idEmpleadoActual);
+        if (!$verificarEmail->execute()) {
+            $errorVerificacion = $verificarEmail->error;
+            $verificarEmail->close();
+            throw new RuntimeException('No se pudo verificar el correo del empleado: ' . $errorVerificacion);
+        }
+        $verificarEmail->store_result();
+        $emailEnUso = $verificarEmail->num_rows > 0;
+        $verificarEmail->close();
 
-        if ($conn->query($sql)) {
-            $mensaje = 'Empleado guardado correctamente.';
+        if ($emailEnUso) {
+            $mensaje = 'Este correo ya está en uso por otro empleado.';
+            $tipoMensaje = 'danger';
+            $idMensaje = 'mensaje-empleado-error';
         } else {
-            $mensaje = 'Error al guardar el empleado: ' . $conn->error;
+            if ($id !== '') {
+                $sql = "UPDATE empleado SET nombre='$nombre', email='$emailSql', password='$password', idRol='$rol' WHERE idEmpleado='$id'";
+            } else {
+                $sql = "INSERT INTO empleado (nombre, email, password, idRol) VALUES ('$nombre', '$emailSql', '$password', '$rol')";
+            }
+
+            if ($conn->query($sql)) {
+                $mensaje = $id !== '' ? '¡Empleado actualizado exitosamente!' : '¡Empleado creado exitosamente!';
+                $tipoMensaje = 'success';
+                $idMensaje = 'mensaje-empleado-exitoso';
+            } else {
+                $mensaje = 'Error al guardar el empleado: ' . $conn->error;
+            }
         }
     }
 
@@ -201,14 +235,64 @@ if ($editEmpleado) {
 }
 
 $reservaColumns = getColumnList($conn, 'reserva');
-$fechaInicioCol = detectarColumnaFecha($reservaColumns, ['fechaInicio', 'fecha_inicio', 'fecha_inicial', 'fechaEntrada', 'fecha_entrada']);
-$fechaFinCol = detectarColumnaFecha($reservaColumns, ['fechaFin', 'fecha_fin', 'fecha_final', 'fechaSalida', 'fecha_salida']);
+$fechaInicioCol = detectarColumnaFecha($reservaColumns, ['fechaInicio', 'fecha_inicio', 'fecha_inicial', 'fechaEntrada', 'fecha_entrada']) ?? 'fechaIngreso';
+$fechaFinCol = detectarColumnaFecha($reservaColumns, ['fechaFin', 'fecha_fin', 'fecha_final', 'fechaSalida', 'fecha_salida']) ?? 'fechaSalida';
+$columnaInicioReserva = $fechaInicioCol ? "r.`$fechaInicioCol`" : 'r.fechaIngreso';
+$columnaFinReserva = $fechaFinCol ? "r.`$fechaFinCol`" : 'r.fechaSalida';
+$estadoReservaSql = "CASE
+    WHEN r.estado = 'Cancelada' THEN 'Cancelada'
+    WHEN $columnaFinReserva < CURDATE() THEN 'Finalizada'
+    WHEN $columnaInicioReserva <= CURDATE() AND $columnaFinReserva >= CURDATE() THEN 'En proceso'
+    ELSE r.estado
+END";
 
 $habitaciones = $conn->query("SELECT * FROM habitacion WHERE estado <> 'Deshabilitada' AND estado <> 'Eliminada' ORDER BY idHabitacion DESC");
 $habitacionesInactivas = $conn->query("SELECT * FROM habitacion WHERE estado IN ('Deshabilitada', 'Eliminada') ORDER BY idHabitacion DESC");
 $clientes = $conn->query("SELECT * FROM cliente ORDER BY idCliente DESC");
 $empleados = $conn->query("SELECT * FROM empleado ORDER BY idEmpleado DESC");
-$reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre AS nombreCliente FROM reserva r INNER JOIN habitacion h ON h.idHabitacion = r.idHabitacion INNER JOIN cliente c ON c.idCliente = r.idCliente WHERE r.estado <> 'Cancelada' ORDER BY r.idReserva DESC");
+$estadosReservas = [];
+$resultadoEstados = $conn->query("SELECT DISTINCT $estadoReservaSql AS estado FROM reserva r ORDER BY estado");
+if (!$resultadoEstados) {
+    die('No se pudieron cargar los estados de las reservas: ' . $conn->error);
+}
+while ($filaEstado = $resultadoEstados->fetch_assoc()) {
+    if ($filaEstado['estado'] !== null && $filaEstado['estado'] !== '') {
+        $estadosReservas[] = $filaEstado['estado'];
+    }
+}
+
+$estadoFiltroReserva = $_GET['estadoReserva'] ?? '';
+if (!is_string($estadoFiltroReserva) || !in_array($estadoFiltroReserva, $estadosReservas, true)) {
+    $estadoFiltroReserva = '';
+}
+$paginaReservaEntrada = $_GET['paginaReservas'] ?? 1;
+$paginaReservas = is_scalar($paginaReservaEntrada)
+    ? filter_var($paginaReservaEntrada, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])
+    : false;
+$paginaReservas = $paginaReservas ?: 1;
+$condicionEstado = $estadoFiltroReserva === ''
+    ? ''
+    : ' WHERE (' . $estadoReservaSql . ") = '" . $conn->real_escape_string($estadoFiltroReserva) . "'";
+$conteoReservas = $conn->query("SELECT COUNT(*) AS total FROM reserva r" . $condicionEstado);
+if (!$conteoReservas) {
+    die('No se pudo contar las reservas: ' . $conn->error);
+}
+$totalReservas = (int) $conteoReservas->fetch_assoc()['total'];
+$reservasPorPagina = 10;
+$totalPaginasReservas = max(1, (int) ceil($totalReservas / $reservasPorPagina));
+$paginaReservas = min($paginaReservas, $totalPaginasReservas);
+$inicioReservas = ($paginaReservas - 1) * $reservasPorPagina;
+$reservasActivas = $conn->query(
+    "SELECT r.*, h.numero, h.idCategoria, c.nombre AS nombreCliente
+     FROM reserva r
+     LEFT JOIN habitacion h ON h.idHabitacion = r.idHabitacion
+     LEFT JOIN cliente c ON c.idCliente = r.idCliente" .
+    $condicionEstado .
+    " ORDER BY r.idReserva DESC LIMIT $reservasPorPagina OFFSET $inicioReservas"
+);
+if (!$reservasActivas) {
+    die('No se pudieron cargar las reservas: ' . $conn->error);
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -217,177 +301,9 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel Administrador</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
-    <style>
-        :root {
-            --bg-sand: #e5e0d9;
-            --bg-deep: #0b2d31;
-            --panel: rgba(255,255,255,0.18);
-            --soft: #f5f1ed;
-            --line: rgba(18, 60, 58, 0.2);
-            --text: #123c3a;
-            --muted: rgba(18, 60, 58, 0.7);
-            --teal: #0f4f57;
-            --teal-deep: #0a363a;
-            --teal-strong: #0d6b6e;
-        }
-
-        body {
-            background: linear-gradient(180deg, #e2e4e0 0%, #e8e0d5 100%);
-            color: var(--text);
-            font-family: 'Segoe UI', sans-serif;
-        }
-
-        .topbar {
-            background: rgba(246, 244, 240, 0.96);
-            border: 2px solid rgba(13, 123, 154, 0.7);
-            border-left: none;
-            border-right: none;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 1.05rem 2.2rem 0.95rem;
-        }
-
-        .brand {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.8rem;
-            font-weight: 600;
-            letter-spacing: 0.06em;
-            font-size: 1.05rem;
-            text-transform: uppercase;
-            color: var(--text);
-            text-decoration: none;
-        }
-
-        .brand-mark {
-            width: 1.1rem;
-            height: 1.1rem;
-            border: 2px solid rgba(14, 81, 93, 0.9);
-            border-radius: 50%;
-            position: relative;
-            display: inline-block;
-        }
-
-        .brand-mark::after {
-            content: "";
-            position: absolute;
-            inset: 0.2rem;
-            border-radius: 50%;
-            border: 1px solid rgba(14,81,93,0.9);
-        }
-
-        .top-nav {
-            display: flex;
-            align-items: center;
-            gap: 0.8rem;
-            color: var(--text);
-        }
-
-        .top-nav a {
-            color: var(--text);
-            text-decoration: none;
-            border: 1px solid rgba(14, 81, 93, 0.45);
-            border-radius: 999px;
-            padding: 0.5rem 0.85rem;
-            font-size: 0.76rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-        }
-
-        .top-nav .cta {
-            background: rgba(14, 81, 93, 0.04);
-            font-weight: 700;
-        }
-
-        .panel-wrap {
-            max-width: 1400px;
-            margin: 2rem auto 3rem;
-            padding: 0 1.2rem;
-        }
-
-        .panel-hero {
-            background: linear-gradient(90deg, rgba(7,36,38,0.9), rgba(9,55,60,0.7));
-            border-radius: 1.3rem;
-            padding: 2rem 2rem 2.2rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 16px 30px rgba(12, 49, 52, 0.12);
-        }
-
-        .panel-hero h1 {
-            margin: 0;
-            font-family: 'Cormorant Garamond', serif;
-            font-size: clamp(2.8rem, 5vw, 4.1rem);
-            color: #f5efe7;
-            letter-spacing: -0.04em;
-            line-height: 0.9;
-        }
-
-        .panel-hero .subtitle {
-            margin-top: 0.9rem;
-            color: rgba(245,239,231,0.8);
-            font-size: 1.02rem;
-            letter-spacing: 0.02em;
-        }
-
-        .card {
-            background: rgba(255,255,255,0.18);
-            border: 1px solid var(--line);
-            border-radius: 1rem;
-            box-shadow: 0 10px 25px rgba(14, 58, 61, 0.08);
-        }
-
-        .card-header {
-            background: rgba(10, 75, 82, 0.94) !important;
-            color: #f5efe7 !important;
-            border-bottom: none !important;
-            border-radius: 1rem 1rem 0 0 !important;
-            padding: 0.9rem 1rem;
-        }
-
-        .card-body {
-            background: rgba(255,255,255,0.08);
-        }
-
-        .table {
-            --bs-table-bg: transparent;
-            color: var(--text);
-        }
-
-        .btn-primary,
-        .btn-success,
-        .btn-warning,
-        .btn-outline-primary,
-        .btn-outline-danger,
-        .btn-outline-warning,
-        .btn-outline-success {
-            border-radius: 999px;
-        }
-
-        .btn-primary {
-            background: linear-gradient(180deg, rgba(7,72,78,1), rgba(13,95,87,1));
-            border: none;
-        }
-
-        .btn-success {
-            background: linear-gradient(180deg, #0d5d63, #0a4a4d);
-            border: none;
-        }
-
-        .btn-warning {
-            background: linear-gradient(180deg, #d8d0bf, #d0c4b0);
-            border: none;
-            color: var(--text);
-        }
-
-        @media (max-width: 760px) {
-            .topbar { padding-inline: 1rem; flex-wrap: wrap; gap: 0.8rem; }
-            .top-nav { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
-            .panel-hero { padding: 1.4rem 1.2rem; }
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="page-admin">
     <header class="topbar">
         <a href="#" class="brand" aria-label="Hotel Pacific Reef">
             <span class="brand-mark" aria-hidden="true"></span>
@@ -395,7 +311,7 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
         </a>
         <nav class="top-nav" aria-label="Navegación principal">
             <span>Bienvenido, <?php echo htmlspecialchars($_SESSION['usuario']); ?></span>
-            <a href="../index.php" class="cta">Cerrar sesión</a>
+            <a id="cerrar-sesion" href="../index.php" class="cta">Cerrar sesión</a>
         </nav>
     </header>
 
@@ -407,7 +323,7 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
 
         <div class="container-fluid px-0 mb-5">
         <?php if ($mensaje): ?>
-            <div class="alert alert-info"><?php echo htmlspecialchars($mensaje); ?></div>
+            <div id="<?php echo $idMensaje; ?>" class="alert alert-<?php echo $tipoMensaje; ?>" role="status"><?php echo htmlspecialchars($mensaje); ?></div>
         <?php endif; ?>
 
         <div class="row g-4 mb-5">
@@ -453,36 +369,36 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                     </div>
                     <div class="card-body">
                         <form method="POST">
-                            <input type="hidden" name="accion" value="guardar_habitacion">
-                            <input type="hidden" name="id_habitacion" value="<?php echo htmlspecialchars($habitacionEdit['idHabitacion'] ?? ''); ?>">
+                            <input id="accion-habitacion" type="hidden" name="accion" value="guardar_habitacion">
+                            <input id="id-habitacion-edicion" type="hidden" name="id_habitacion" value="<?php echo htmlspecialchars($habitacionEdit['idHabitacion'] ?? ''); ?>">
 
                             <div class="mb-3">
                                 <label class="form-label">Número</label>
-                                <input type="text" name="numero" class="form-control" value="<?php echo htmlspecialchars($habitacionEdit['numero'] ?? ''); ?>" required>
+                                <input id="numero-habitacion" type="text" name="numero" class="form-control" value="<?php echo htmlspecialchars($habitacionEdit['numero'] ?? ''); ?>" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Categoría</label>
-                                <input type="number" name="idCategoria" class="form-control" value="<?php echo htmlspecialchars($habitacionEdit['idCategoria'] ?? 1); ?>" min="1" required>
+                                <input id="categoria-habitacion" type="number" name="idCategoria" class="form-control" value="<?php echo htmlspecialchars($habitacionEdit['idCategoria'] ?? 1); ?>" min="1" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Piso</label>
-                                <input type="number" name="piso" class="form-control" value="<?php echo htmlspecialchars($habitacionEdit['piso'] ?? 1); ?>" min="1" required>
+                                <input id="piso-habitacion" type="number" name="piso" class="form-control" value="<?php echo htmlspecialchars($habitacionEdit['piso'] ?? 1); ?>" min="1" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Precio diario</label>
-                                <input type="number" step="0.01" name="valorDiario" class="form-control" value="<?php echo htmlspecialchars($habitacionEdit['valorDiario'] ?? 0); ?>" required>
+                                <input id="precio-habitacion" type="number" step="0.01" name="valorDiario" class="form-control" value="<?php echo htmlspecialchars($habitacionEdit['valorDiario'] ?? 0); ?>" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Descripción</label>
-                                <textarea name="descripcion" class="form-control" rows="2"><?php echo htmlspecialchars($habitacionEdit['descripcion'] ?? ''); ?></textarea>
+                                <textarea id="descripcion-habitacion" name="descripcion" class="form-control" rows="2"><?php echo htmlspecialchars($habitacionEdit['descripcion'] ?? ''); ?></textarea>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Equipamiento</label>
-                                <textarea name="equipamiento" class="form-control" rows="2"><?php echo htmlspecialchars($habitacionEdit['equipamiento'] ?? ''); ?></textarea>
+                                <textarea id="equipamiento-habitacion" name="equipamiento" class="form-control" rows="2"><?php echo htmlspecialchars($habitacionEdit['equipamiento'] ?? ''); ?></textarea>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Estado</label>
-                                <select name="estado" class="form-select">
+                                <select id="estado-habitacion" name="estado" class="form-select">
                                     <option value="Disponible" <?php echo (($habitacionEdit['estado'] ?? 'Disponible') === 'Disponible') ? 'selected' : ''; ?>>Disponible</option>
                                     <option value="Ocupada" <?php echo (($habitacionEdit['estado'] ?? 'Disponible') === 'Ocupada') ? 'selected' : ''; ?>>Ocupada</option>
                                     <option value="Mantenimiento" <?php echo (($habitacionEdit['estado'] ?? 'Disponible') === 'Mantenimiento') ? 'selected' : ''; ?>>Mantenimiento</option>
@@ -490,44 +406,46 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                                 </select>
                             </div>
 
-                            <button type="submit" class="btn btn-primary w-100"><?php echo $habitacionEdit ? 'Actualizar' : 'Guardar'; ?> habitación</button>
+                            <button id="guardar-habitacion" type="submit" class="btn btn-primary w-100"><?php echo $habitacionEdit ? 'Actualizar' : 'Guardar'; ?> habitación</button>
                         </form>
                     </div>
                 </div>
             </div>
 
+            <?php if ($clienteEdit): ?>
             <div class="col-lg-4">
                 <div class="card shadow-sm">
                     <div class="card-header bg-success text-white">
-                        <h5 class="mb-0">Clientes</h5>
+                        <h5 class="mb-0">Editar cliente</h5>
                     </div>
                     <div class="card-body">
                         <form method="POST">
-                            <input type="hidden" name="accion" value="guardar_cliente">
-                            <input type="hidden" name="id_cliente" value="<?php echo htmlspecialchars($clienteEdit['idCliente'] ?? ''); ?>">
+                            <input id="accion-cliente" type="hidden" name="accion" value="guardar_cliente">
+                            <input id="id-cliente-edicion" type="hidden" name="id_cliente" value="<?php echo htmlspecialchars($clienteEdit['idCliente'] ?? ''); ?>">
 
                             <div class="mb-3">
                                 <label class="form-label">Nombre</label>
-                                <input type="text" name="nombre" class="form-control" value="<?php echo htmlspecialchars($clienteEdit['nombre'] ?? ''); ?>" required>
+                                <input id="nombre-cliente" type="text" name="nombre" class="form-control" value="<?php echo htmlspecialchars($clienteEdit['nombre'] ?? ''); ?>" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Email</label>
-                                <input type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($clienteEdit['email'] ?? ''); ?>" required>
+                                <input id="email-cliente" type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($clienteEdit['email'] ?? ''); ?>" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Teléfono</label>
-                                <input type="text" name="telefono" class="form-control" value="<?php echo htmlspecialchars($clienteEdit['telefono'] ?? ''); ?>">
+                                <input id="telefono-cliente" type="text" name="telefono" class="form-control" value="<?php echo htmlspecialchars($clienteEdit['telefono'] ?? ''); ?>">
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Contraseña</label>
-                                <input type="text" name="password" class="form-control" value="<?php echo htmlspecialchars($clienteEdit['password'] ?? ''); ?>" required>
+                                <input id="password-cliente" type="text" name="password" class="form-control" value="<?php echo htmlspecialchars($clienteEdit['password'] ?? ''); ?>" required>
                             </div>
 
-                            <button type="submit" class="btn btn-success w-100"><?php echo $clienteEdit ? 'Actualizar' : 'Guardar'; ?> cliente</button>
+                            <button id="guardar-cliente" type="submit" class="btn btn-success w-100">Actualizar cliente</button>
                         </form>
                     </div>
                 </div>
             </div>
+            <?php endif; ?>
 
             <div class="col-lg-4">
                 <div class="card shadow-sm">
@@ -536,30 +454,30 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                     </div>
                     <div class="card-body">
                         <form method="POST">
-                            <input type="hidden" name="accion" value="guardar_empleado">
-                            <input type="hidden" name="id_empleado" value="<?php echo htmlspecialchars($empleadoEdit['idEmpleado'] ?? ''); ?>">
+                            <input id="accion-empleado" type="hidden" name="accion" value="guardar_empleado">
+                            <input id="id-empleado-edicion" type="hidden" name="id_empleado" value="<?php echo htmlspecialchars($empleadoEdit['idEmpleado'] ?? ''); ?>">
 
                             <div class="mb-3">
                                 <label class="form-label">Nombre</label>
-                                <input type="text" name="nombre" class="form-control" value="<?php echo htmlspecialchars($empleadoEdit['nombre'] ?? ''); ?>" required>
+                                <input id="nombre-empleado" type="text" name="nombre" class="form-control" value="<?php echo htmlspecialchars($empleadoEdit['nombre'] ?? ''); ?>" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Email</label>
-                                <input type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($empleadoEdit['email'] ?? ''); ?>" required>
+                                <input id="email-empleado" type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($empleadoEdit['email'] ?? ''); ?>" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Contraseña</label>
-                                <input type="text" name="password" class="form-control" value="<?php echo htmlspecialchars($empleadoEdit['password'] ?? ''); ?>" required>
+                                <input id="password-empleado" type="text" name="password" class="form-control" value="<?php echo htmlspecialchars($empleadoEdit['password'] ?? ''); ?>" required>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Rol</label>
-                                <select name="idRol" class="form-select">
+                                <select id="rol-empleado" name="idRol" class="form-select">
                                     <option value="1" <?php echo (($empleadoEdit['idRol'] ?? 2) == 1) ? 'selected' : ''; ?>>Administrador</option>
                                     <option value="2" <?php echo (($empleadoEdit['idRol'] ?? 2) == 2) ? 'selected' : ''; ?>>Empleado</option>
                                 </select>
                             </div>
 
-                            <button type="submit" class="btn btn-warning w-100 text-dark"><?php echo $empleadoEdit ? 'Actualizar' : 'Guardar'; ?> empleado</button>
+                            <button id="guardar-empleado" type="submit" class="btn btn-warning w-100 text-dark"><?php echo $empleadoEdit ? 'Actualizar' : 'Guardar'; ?> empleado</button>
                         </form>
                     </div>
                 </div>
@@ -568,10 +486,20 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
 
         <div class="row g-4 mt-2">
             <div class="col-12">
-                <div class="card shadow-sm">
+                <div id="lista-reservas" class="card shadow-sm">
                     <div class="card-header bg-warning text-dark">
                         <h5 class="mb-0">Habitaciones reservadas</h5>
                     </div>
+                    <form method="GET" class="reservation-filter">
+                        <label for="estadoReserva">Filtrar por estado</label>
+                        <select id="estadoReserva" name="estadoReserva" class="form-select">
+                            <option value="">Todos los estados</option>
+                            <?php foreach ($estadosReservas as $estadoDisponible): ?>
+                                <option value="<?php echo htmlspecialchars($estadoDisponible); ?>" <?php echo $estadoFiltroReserva === $estadoDisponible ? 'selected' : ''; ?>><?php echo htmlspecialchars($estadoDisponible); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button id="filtrar-reservas" type="submit" class="btn btn-primary">Filtrar</button>
+                    </form>
                     <div class="card-body p-0">
                         <table class="table mb-0">
                             <thead>
@@ -584,7 +512,7 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php if ($reservasActivas && $reservasActivas->num_rows > 0): ?>
+                                <?php if ($reservasActivas->num_rows > 0): ?>
                                     <?php while ($reserva = $reservasActivas->fetch_assoc()): ?>
                                         <?php
                                         $estadoReserva = $reserva['estado'];
@@ -600,8 +528,8 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                                         }
                                         ?>
                                         <tr>
-                                            <td><?php echo htmlspecialchars($reserva['numero'] . ' - ' . ($reserva['idCategoria'] ?? '')); ?></td>
-                                            <td><?php echo htmlspecialchars($reserva['nombreCliente']); ?></td>
+                                            <td><?php echo htmlspecialchars(($reserva['numero'] ?? 'Habitación eliminada') . (isset($reserva['idCategoria']) ? ' - ' . $reserva['idCategoria'] : '')); ?></td>
+                                            <td><?php echo htmlspecialchars($reserva['nombreCliente'] ?? 'Cliente eliminado'); ?></td>
                                             <td><?php echo htmlspecialchars(formatFechaEs($reserva[$fechaInicioCol] ?? '')); ?></td>
                                             <td><?php echo htmlspecialchars(formatFechaEs($reserva[$fechaFinCol] ?? '')); ?></td>
                                             <td><?php echo htmlspecialchars($estadoReserva); ?></td>
@@ -609,11 +537,23 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                                     <?php endwhile; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="5" class="text-center text-muted">No hay habitaciones reservadas.</td>
+                                        <td colspan="5" class="text-center text-muted">No hay reservas para este estado.</td>
                                     </tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
+                        <div class="reservation-pagination">
+                            <span>Mostrando <?php echo $totalReservas === 0 ? 0 : $inicioReservas + 1; ?>–<?php echo min($inicioReservas + $reservasActivas->num_rows, $totalReservas); ?> de <?php echo $totalReservas; ?> reservas</span>
+                            <nav aria-label="Paginación de reservas">
+                                <?php if ($paginaReservas > 1): ?>
+                                    <a id="pagina-reservas-anterior" class="btn btn-outline-primary btn-sm" href="?<?php echo htmlspecialchars(http_build_query(['estadoReserva' => $estadoFiltroReserva, 'paginaReservas' => $paginaReservas - 1])); ?>">Anterior</a>
+                                <?php endif; ?>
+                                <span>Página <?php echo $paginaReservas; ?> de <?php echo $totalPaginasReservas; ?></span>
+                                <?php if ($paginaReservas < $totalPaginasReservas): ?>
+                                    <a id="pagina-reservas-siguiente" class="btn btn-outline-primary btn-sm" href="?<?php echo htmlspecialchars(http_build_query(['estadoReserva' => $estadoFiltroReserva, 'paginaReservas' => $paginaReservas + 1])); ?>">Siguiente</a>
+                                <?php endif; ?>
+                            </nav>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -621,10 +561,10 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
 
         <div class="row g-4 mt-2">
             <div class="col-lg-4">
-                <div class="card shadow-sm">
-                    <div class="card-header">
+                <details id="lista-habitaciones" class="card shadow-sm admin-list">
+                    <summary class="card-header">
                         <h5 class="mb-0">Listado de habitaciones</h5>
-                    </div>
+                    </summary>
                     <div class="card-body p-0">
                         <table class="table mb-0">
                             <thead>
@@ -644,11 +584,11 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                                             <td><?php echo htmlspecialchars($habitacion['estado']); ?></td>
                                             <td>
                                                 <div class="d-flex gap-2">
-                                                    <a href="?edit_habitacion=<?php echo $habitacion['idHabitacion']; ?>" class="btn btn-sm btn-outline-primary">Editar</a>
+                                                    <a id="editar-habitacion-<?php echo (int) $habitacion['idHabitacion']; ?>" href="?edit_habitacion=<?php echo $habitacion['idHabitacion']; ?>" class="btn btn-sm btn-outline-primary">Editar</a>
                                                     <form method="POST" class="d-inline">
-                                                        <input type="hidden" name="accion" value="eliminar_habitacion">
-                                                        <input type="hidden" name="id" value="<?php echo $habitacion['idHabitacion']; ?>">
-                                                        <button type="submit" class="btn btn-sm btn-outline-warning">Deshabilitar</button>
+                                                        <input id="accion-eliminar-habitacion-<?php echo (int) $habitacion['idHabitacion']; ?>" type="hidden" name="accion" value="eliminar_habitacion">
+                                                        <input id="id-eliminar-habitacion-<?php echo (int) $habitacion['idHabitacion']; ?>" type="hidden" name="id" value="<?php echo (int) $habitacion['idHabitacion']; ?>">
+                                                        <button id="deshabilitar-habitacion-<?php echo (int) $habitacion['idHabitacion']; ?>" type="submit" class="btn btn-sm btn-outline-warning">Deshabilitar</button>
                                                     </form>
                                                 </div>
                                             </td>
@@ -662,14 +602,14 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                             </tbody>
                         </table>
                     </div>
-                </div>
+                </details>
             </div>
 
             <div class="col-lg-4">
-                <div class="card shadow-sm">
-                    <div class="card-header bg-secondary text-white">
+                <details id="lista-habitaciones-inactivas" class="card shadow-sm admin-list">
+                    <summary class="card-header bg-secondary text-white">
                         <h5 class="mb-0">Habitaciones inactivas</h5>
-                    </div>
+                    </summary>
                     <div class="card-body p-0">
                         <table class="table mb-0">
                             <thead>
@@ -687,9 +627,9 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                                             <td><?php echo htmlspecialchars($habitacion['idCategoria']); ?></td>
                                             <td>
                                                 <form method="POST" class="d-inline">
-                                                    <input type="hidden" name="accion" value="reactivar_habitacion">
-                                                    <input type="hidden" name="id" value="<?php echo $habitacion['idHabitacion']; ?>">
-                                                    <button type="submit" class="btn btn-sm btn-success">Reintegrar</button>
+                                                    <input id="accion-reactivar-habitacion-<?php echo (int) $habitacion['idHabitacion']; ?>" type="hidden" name="accion" value="reactivar_habitacion">
+                                                    <input id="id-reactivar-habitacion-<?php echo (int) $habitacion['idHabitacion']; ?>" type="hidden" name="id" value="<?php echo (int) $habitacion['idHabitacion']; ?>">
+                                                    <button id="reactivar-habitacion-<?php echo (int) $habitacion['idHabitacion']; ?>" type="submit" class="btn btn-sm btn-success">Reintegrar</button>
                                                 </form>
                                             </td>
                                         </tr>
@@ -702,14 +642,14 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                             </tbody>
                         </table>
                     </div>
-                </div>
+                </details>
             </div>
 
             <div class="col-lg-4">
-                <div class="card shadow-sm">
-                    <div class="card-header">
+                <details id="lista-clientes" class="card shadow-sm admin-list">
+                    <summary class="card-header">
                         <h5 class="mb-0">Listado de clientes</h5>
-                    </div>
+                    </summary>
                     <div class="card-body p-0">
                         <table class="table mb-0">
                             <thead>
@@ -727,11 +667,11 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                                             <td><?php echo htmlspecialchars($cliente['email']); ?></td>
                                             <td>
                                                 <div class="d-flex gap-2">
-                                                    <a href="?edit_cliente=<?php echo $cliente['idCliente']; ?>" class="btn btn-sm btn-outline-primary">Editar</a>
+                                                    <a id="editar-cliente-<?php echo (int) $cliente['idCliente']; ?>" href="?edit_cliente=<?php echo $cliente['idCliente']; ?>" class="btn btn-sm btn-outline-primary">Editar</a>
                                                     <form method="POST" class="d-inline">
-                                                        <input type="hidden" name="accion" value="eliminar_cliente">
-                                                        <input type="hidden" name="id" value="<?php echo $cliente['idCliente']; ?>">
-                                                        <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                                        <input id="accion-eliminar-cliente-<?php echo (int) $cliente['idCliente']; ?>" type="hidden" name="accion" value="eliminar_cliente">
+                                                        <input id="id-eliminar-cliente-<?php echo (int) $cliente['idCliente']; ?>" type="hidden" name="id" value="<?php echo (int) $cliente['idCliente']; ?>">
+                                                        <button id="eliminar-cliente-<?php echo (int) $cliente['idCliente']; ?>" type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
                                                     </form>
                                                 </div>
                                             </td>
@@ -745,14 +685,14 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                             </tbody>
                         </table>
                     </div>
-                </div>
+                </details>
             </div>
 
             <div class="col-lg-4">
-                <div class="card shadow-sm">
-                    <div class="card-header">
+                <details id="lista-empleados" class="card shadow-sm admin-list">
+                    <summary class="card-header">
                         <h5 class="mb-0">Listado de empleados</h5>
-                    </div>
+                    </summary>
                     <div class="card-body p-0">
                         <table class="table mb-0">
                             <thead>
@@ -770,11 +710,11 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                                             <td><?php echo htmlspecialchars($empleado['email']); ?></td>
                                             <td>
                                                 <div class="d-flex gap-2">
-                                                    <a href="?edit_empleado=<?php echo $empleado['idEmpleado']; ?>" class="btn btn-sm btn-outline-primary">Editar</a>
+                                                    <a id="editar-empleado-<?php echo (int) $empleado['idEmpleado']; ?>" href="?edit_empleado=<?php echo $empleado['idEmpleado']; ?>" class="btn btn-sm btn-outline-primary">Editar</a>
                                                     <form method="POST" class="d-inline">
-                                                        <input type="hidden" name="accion" value="eliminar_empleado">
-                                                        <input type="hidden" name="id" value="<?php echo $empleado['idEmpleado']; ?>">
-                                                        <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                                                        <input id="accion-eliminar-empleado-<?php echo (int) $empleado['idEmpleado']; ?>" type="hidden" name="accion" value="eliminar_empleado">
+                                                        <input id="id-eliminar-empleado-<?php echo (int) $empleado['idEmpleado']; ?>" type="hidden" name="id" value="<?php echo (int) $empleado['idEmpleado']; ?>">
+                                                        <button id="eliminar-empleado-<?php echo (int) $empleado['idEmpleado']; ?>" type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
                                                     </form>
                                                 </div>
                                             </td>
@@ -788,7 +728,7 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                             </tbody>
                         </table>
                     </div>
-                </div>
+                </details>
             </div>
         </div>
     </div>

@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hotel Pacific Reef</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="views/style.css">
 </head>
-<body>
+<body class="page-login">
     <div class="container mt-5">
         <div class="row justify-content-center">
             <div class="col-md-4">
@@ -26,7 +27,7 @@
                                 <input type="password" id="password" class="form-control" name="password" required>
                             </div>
 
-                            <button type="submit" class="btn btn-primary w-100">Iniciar Sesión</button>
+                            <button type="submit" id="lgnBtn" class="btn btn-primary w-100">Iniciar Sesión</button>
                         </form>
                     </div>
                 </div>

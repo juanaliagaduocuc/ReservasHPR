@@ -73,48 +73,9 @@ function fechaHabitacion($fecha)
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root { --sand: #e5e0d9; --text: #123c3a; --muted: rgba(18,60,58,.7); --teal: #0f4f57; --line: rgba(18,60,58,.25); }
-        * { box-sizing: border-box; }
-        body { margin: 0; background: var(--sand); color: var(--text); font-family: Inter, sans-serif; }
-        .topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 2rem; background: rgba(246,244,240,.96); border-block: 2px solid rgba(13,123,154,.7); }
-        .brand, .nav a { color: var(--text); text-decoration: none; }
-        .brand { font-family: 'Cormorant Garamond',serif; font-size: 1.2rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-        .nav { display: flex; flex-wrap: wrap; gap: .7rem; }
-        .nav a { border: 1px solid var(--line); border-radius: 999px; padding: .55rem .9rem; font-size: .8rem; }
-        main { max-width: 1250px; margin: 2rem auto; padding: 0 1rem 3rem; }
-        .intro { margin-bottom: 1.5rem; }
-        h1 { margin: 0; font: 500 clamp(2.8rem,6vw,4.7rem)/.95 'Cormorant Garamond',serif; }
-        .intro p { color: var(--muted); line-height: 1.5; }
-        .room-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(290px,1fr)); gap: 1.2rem; }
-        .room-card { overflow: hidden; border: 1px solid var(--line); border-radius: 1rem; background: rgba(255,255,255,.35); box-shadow: 0 8px 22px rgba(15,58,60,.06); }
-        .room-image { position: relative; height: 210px; background-size: cover; background-position: center; }
-        .room-card.reserved .room-image { filter: grayscale(1) brightness(.72); }
-        .room-status { position: absolute; inset: auto 0 0; padding: .7rem .8rem; background: rgba(11,45,49,.86); color: #fff; text-align: center; font-size: .78rem; line-height: 1.45; font-weight: 700; }
-        .room-body { padding: 1rem; }
-        .room-heading { display: flex; justify-content: space-between; align-items: start; gap: .8rem; }
-        h2 { margin: 0; font: 500 2.3rem/.95 'Cormorant Garamond',serif; }
-        .category, .badge { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: .35rem .65rem; font-size: .76rem; }
-        .price { margin: .75rem 0; font-size: 1.25rem; font-weight: 700; }
-        .price small { color: var(--muted); font-size: .76rem; font-weight: 400; }
-        .details { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin: .8rem 0; font-size: .85rem; }
-        .description, .equipment { margin: .6rem 0; color: var(--muted); font-size: .86rem; line-height: 1.5; }
-        .calendar { padding: .9rem; border-top: 1px solid var(--line); }
-        .calendar-title { margin: 0 0 .7rem; font-size: .9rem; font-weight: 700; }
-        .calendar-grid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: .22rem; text-align: center; font-size: .73rem; }
-        .calendar-day { min-height: 1.8rem; display: grid; place-items: center; border-radius: 50%; }
-        .calendar-day.booked { background: #737b78; color: white; }
-        .weekdays { color: var(--muted); font-size: .65rem; font-weight: 700; }
-        .legend { margin-top: .6rem; color: var(--muted); font-size: .72rem; }
-        .booking-form { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; padding: 0 1rem 1rem; }
-        .booking-form label { display: block; margin-bottom: .25rem; font-size: .75rem; }
-        .booking-form input { width: 100%; min-height: 2.4rem; border: 1px solid var(--line); border-radius: .5rem; padding: .35rem; }
-        .button { grid-column: 1/-1; display: block; padding: .75rem 1rem; border: 0; border-radius: 999px; background: linear-gradient(180deg,#07484e,#0d5f57); color: white; text-align: center; text-decoration: none; font-size: .78rem; font-weight: 700; text-transform: uppercase; cursor: pointer; }
-        .empty { padding: 2rem; text-align: center; border: 1px solid var(--line); border-radius: 1rem; }
-        @media(max-width:650px) { .topbar { padding: 1rem; flex-wrap: wrap; } .booking-form { grid-template-columns: 1fr; } }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="page-habitaciones">
     <header class="topbar">
         <a class="brand" href="cliente.php">Hotel Pacific Reef</a>
         <nav class="nav" aria-label="Navegación">
@@ -164,7 +125,8 @@ function fechaHabitacion($fecha)
                     $id = (int) $habitacion['idHabitacion'];
                     ?>
                     <article class="room-card<?php echo $reservada ? ' reserved' : ''; ?>">
-                        <div class="room-image" style="background-image:url('<?php echo htmlspecialchars($imagenes[$categoria] ?? $imagenes['Turista']); ?>')">
+                        <div class="room-image">
+                            <img src="<?php echo htmlspecialchars($imagenes[$categoria] ?? $imagenes['Turista']); ?>" alt="Habitación <?php echo $id; ?>">
                             <?php if ($reservaActual): ?>
                                 <div class="room-status">Reservada ahora · disponible nuevamente desde <?php echo htmlspecialchars(fechaHabitacion($disponibleDesde)); ?></div>
                             <?php elseif ($proximaReserva): ?>
@@ -195,7 +157,7 @@ function fechaHabitacion($fecha)
                         <div class="calendar">
                             <p class="calendar-title">Calendario · <?php echo htmlspecialchars(date('F Y')); ?></p>
                             <div class="calendar-grid" data-calendar="<?php echo htmlspecialchars(json_encode($reservasHabitacion, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8'); ?>" data-fixed="<?php echo $bloqueoFijo ? 'true' : 'false'; ?>" data-month="<?php echo date('Y-m'); ?>"></div>
-                            <div class="legend">Los días grises no están disponibles.</div>
+                            <div class="legend">Los días grises incluyen el día anterior y posterior a cada reserva.</div>
                         </div>
                         <?php if (!$bloqueoFijo): ?>
                             <form class="booking-form" method="POST" action="cliente.php">
@@ -209,7 +171,7 @@ function fechaHabitacion($fecha)
                                     <label for="salida-<?php echo $id; ?>">Salida</label>
                                     <input id="salida-<?php echo $id; ?>" type="date" name="fechaSalida" min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>" value="<?php echo date('Y-m-d', strtotime('+1 day')); ?>" required>
                                 </div>
-                                <button class="button" type="submit" name="accion" value="consultar_disponibilidad">Consultar fechas y reservar</button>
+                                <button id="consultar-disponibilidad-<?php echo $id; ?>" class="button" type="submit" name="accion" value="consultar_disponibilidad">Consultar fechas y reservar</button>
                             </form>
                         <?php endif; ?>
                     </article>
@@ -221,6 +183,11 @@ function fechaHabitacion($fecha)
     </main>
     <script>
         const weekdayNames = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'];
+        const offsetDateKey = (key, days) => {
+            const date = new Date(`${key}T00:00:00Z`);
+            date.setUTCDate(date.getUTCDate() + days);
+            return date.toISOString().slice(0, 10);
+        };
         document.querySelectorAll('[data-calendar]').forEach(grid => {
             const [year, month] = grid.dataset.month.split('-').map(Number);
             const booked = JSON.parse(grid.dataset.calendar);
@@ -235,7 +202,9 @@ function fechaHabitacion($fecha)
             for (let i = 0; i < firstDay; i++) grid.append(document.createElement('span'));
             for (let n = 1; n <= days; n++) {
                 const key = `${year}-${String(month).padStart(2, '0')}-${String(n).padStart(2, '0')}`;
-                const unavailable = grid.dataset.fixed === 'true' || booked.some(range => range.inicio <= key && key <= range.fin);
+                const unavailable = grid.dataset.fixed === 'true' || booked.some(range =>
+                    offsetDateKey(range.inicio, -1) <= key && key <= offsetDateKey(range.fin, 1)
+                );
                 const cell = document.createElement('span');
                 cell.className = `calendar-day${unavailable ? ' booked' : ''}`;
                 cell.textContent = n;
