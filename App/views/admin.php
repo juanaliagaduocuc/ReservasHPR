@@ -586,12 +586,25 @@ $reservasActivas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre A
                             <tbody>
                                 <?php if ($reservasActivas && $reservasActivas->num_rows > 0): ?>
                                     <?php while ($reserva = $reservasActivas->fetch_assoc()): ?>
+                                        <?php
+                                        $estadoReserva = $reserva['estado'];
+                                        $fechaInicioReserva = $fechaInicioCol ? substr((string) ($reserva[$fechaInicioCol] ?? ''), 0, 10) : '';
+                                        $fechaFinReserva = $fechaFinCol ? substr((string) ($reserva[$fechaFinCol] ?? ''), 0, 10) : '';
+                                        $hoy = date('Y-m-d');
+                                        if ($estadoReserva !== 'Cancelada' && $fechaInicioReserva !== '' && $fechaFinReserva !== '') {
+                                            if ($fechaFinReserva < $hoy) {
+                                                $estadoReserva = 'Finalizada';
+                                            } elseif ($fechaInicioReserva <= $hoy && $fechaFinReserva >= $hoy) {
+                                                $estadoReserva = 'En proceso';
+                                            }
+                                        }
+                                        ?>
                                         <tr>
                                             <td><?php echo htmlspecialchars($reserva['numero'] . ' - ' . ($reserva['idCategoria'] ?? '')); ?></td>
                                             <td><?php echo htmlspecialchars($reserva['nombreCliente']); ?></td>
                                             <td><?php echo htmlspecialchars(formatFechaEs($reserva[$fechaInicioCol] ?? '')); ?></td>
                                             <td><?php echo htmlspecialchars(formatFechaEs($reserva[$fechaFinCol] ?? '')); ?></td>
-                                            <td><?php echo htmlspecialchars($reserva['estado']); ?></td>
+                                            <td><?php echo htmlspecialchars($estadoReserva); ?></td>
                                         </tr>
                                     <?php endwhile; ?>
                                 <?php else: ?>

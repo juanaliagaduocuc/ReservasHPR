@@ -8,13 +8,175 @@ if (!isset($_SESSION['cliente'], $_SESSION['idCliente'])) {
 
 require_once '../config/database.php';
 
+$mensajeReserva = $_SESSION['mensajeReserva'] ?? '';
+unset($_SESSION['mensajeReserva']);
+$_SESSION['csrfReserva'] = $_SESSION['csrfReserva'] ?? bin2hex(random_bytes(32));
+$consultaDisponibilidad = null;
+$fechaIngresoConsulta = date('Y-m-d');
+$fechaSalidaConsulta = date('Y-m-d', strtotime('+1 day'));
+$accionesReserva = ['consultar_disponibilidad', 'reservar_habitacion'];
+
+function validarFechasReserva($fechaIngreso, $fechaSalida)
+{
+    $ingreso = DateTimeImmutable::createFromFormat('!Y-m-d', $fechaIngreso);
+    $salida = DateTimeImmutable::createFromFormat('!Y-m-d', $fechaSalida);
+
+    if (!$ingreso || $ingreso->format('Y-m-d') !== $fechaIngreso || !$salida || $salida->format('Y-m-d') !== $fechaSalida) {
+        return 'Selecciona fechas válidas.';
+    }
+    if ($ingreso < new DateTimeImmutable('today') || $salida <= $ingreso) {
+        return 'El ingreso debe ser hoy o una fecha futura y la salida debe ser posterior al ingreso.';
+    }
+
+    return '';
+}
+
+function consultarDisponibilidad($conn, $idHabitacion, $fechaIngreso, $fechaSalida)
+{
+    $stmt = $conn->prepare(
+        "SELECT h.estado,
+                EXISTS(
+                    SELECT 1 FROM reserva r
+                    WHERE r.idHabitacion = h.idHabitacion
+                      AND COALESCE(r.estado, '') <> 'Cancelada'
+                      AND r.fechaIngreso <= CURDATE()
+                      AND r.fechaSalida >= CURDATE()
+                ) AS reservaActual
+         FROM habitacion h WHERE h.idHabitacion = ?"
+    );
+    $stmt->bind_param('i', $idHabitacion);
+    $stmt->execute();
+    $stmt->bind_result($estado, $reservaActual);
+    if (!$stmt->fetch()) {
+        $stmt->close();
+        return [false, 'La habitación seleccionada no existe.'];
+    }
+    $stmt->close();
+
+    if (!in_array($estado, ['Disponible', 'Ocupada'], true)) {
+        return [false, 'La habitación no está habilitada para reservas.'];
+    }
+    if ($estado === 'Ocupada' && (int) $reservaActual === 0) {
+        return [false, 'La habitación está ocupada y no tiene una fecha de salida registrada.'];
+    }
+
+    $stmt = $conn->prepare(
+        "SELECT COUNT(*) FROM reserva
+         WHERE idHabitacion = ? AND COALESCE(estado, '') <> 'Cancelada'
+           AND fechaIngreso <= ? AND fechaSalida >= ?"
+    );
+    $stmt->bind_param('iss', $idHabitacion, $fechaSalida, $fechaIngreso);
+    $stmt->execute();
+    $stmt->bind_result($reservasEnConflicto);
+    $stmt->fetch();
+    $stmt->close();
+
+    return (int) $reservasEnConflicto === 0
+        ? [true, 'La habitación está disponible para las fechas seleccionadas.']
+        : [false, 'La habitación no está disponible para esas fechas. Debe dejarse un día entre estadías.'];
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', $accionesReserva, true) && (!isset($_POST['csrfReserva']) || !is_string($_POST['csrfReserva']) || !hash_equals($_SESSION['csrfReserva'], $_POST['csrfReserva']))) {
+    $mensajeReserva = 'La solicitud expiró. Actualiza la página e inténtalo de nuevo.';
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', $accionesReserva, true)) {
+    $accionReserva = $_POST['accion'];
+    $transaccionActiva = false;
+    $idHabitacionEntrada = $_POST['idHabitacion'] ?? null;
+    $idHabitacionConsulta = is_scalar($idHabitacionEntrada) ? filter_var($idHabitacionEntrada, FILTER_VALIDATE_INT) : false;
+    $fechaIngresoConsulta = is_string($_POST['fechaIngreso'] ?? null) ? trim($_POST['fechaIngreso']) : '';
+    $fechaSalidaConsulta = is_string($_POST['fechaSalida'] ?? null) ? trim($_POST['fechaSalida']) : '';
+    $errorFechas = validarFechasReserva($fechaIngresoConsulta, $fechaSalidaConsulta);
+    $disponible = false;
+    $resultadoConsulta = $errorFechas;
+
+    if ($idHabitacionConsulta && $errorFechas === '') {
+        try {
+            if ($accionReserva === 'reservar_habitacion') {
+                $conn->begin_transaction();
+                $transaccionActiva = true;
+                $stmt = $conn->prepare("SELECT valorDiario FROM habitacion WHERE idHabitacion = ? AND estado IN ('Disponible', 'Ocupada') FOR UPDATE");
+                $stmt->bind_param('i', $idHabitacionConsulta);
+                $stmt->execute();
+                $stmt->bind_result($valorDiario);
+                $habitacionEncontrada = $stmt->fetch();
+                $stmt->close();
+
+                if (!$habitacionEncontrada) {
+                    throw new RuntimeException('La habitación no está habilitada para reservas.');
+                }
+            }
+
+            [$disponible, $resultadoConsulta] = consultarDisponibilidad($conn, $idHabitacionConsulta, $fechaIngresoConsulta, $fechaSalidaConsulta);
+
+            if ($accionReserva === 'reservar_habitacion' && $disponible) {
+                $cantidadDias = (int) ((strtotime($fechaSalidaConsulta) - strtotime($fechaIngresoConsulta)) / 86400);
+                $valorTotal = $valorDiario * $cantidadDias;
+                $valorAnticipo = $valorTotal * 0.30;
+                $stmt = $conn->prepare(
+                    "INSERT INTO reserva (fechaIngreso, fechaSalida, cantidadDias, valorTotal, valorAnticipo, estado, idHabitacion, idCliente)
+                     VALUES (?, ?, ?, ?, ?, 'Confirmada', ?, ?)"
+                );
+                $idCliente = (int) $_SESSION['idCliente'];
+                $stmt->bind_param('ssiddii', $fechaIngresoConsulta, $fechaSalidaConsulta, $cantidadDias, $valorTotal, $valorAnticipo, $idHabitacionConsulta, $idCliente);
+                $stmt->execute();
+                $stmt->close();
+                $conn->commit();
+                $transaccionActiva = false;
+                $_SESSION['mensajeReserva'] = 'Reserva confirmada correctamente.';
+                header('Location: cliente.php');
+                exit();
+            }
+
+            if ($accionReserva === 'reservar_habitacion') {
+                $conn->rollback();
+            }
+        } catch (Throwable $error) {
+            if ($transaccionActiva) {
+                $conn->rollback();
+            }
+            $resultadoConsulta = 'No se pudo completar la operación: ' . $error->getMessage();
+        }
+    } elseif (!$idHabitacionConsulta) {
+        $resultadoConsulta = 'Selecciona una habitación válida.';
+    }
+
+    $consultaDisponibilidad = [
+        'idHabitacion' => $idHabitacionConsulta,
+        'disponible' => $disponible,
+        'mensaje' => $resultadoConsulta,
+    ];
+}
+
 $habitaciones = $conn->query(
     "SELECT h.*, c.nombre AS categoria 
      FROM habitacion h
      LEFT JOIN categoria c ON c.idCategoria = h.idCategoria
-     WHERE h.estado = 'Disponible'
+     WHERE h.estado NOT IN ('Deshabilitada', 'Eliminada')
      ORDER BY h.valorDiario ASC"
 );
+
+if (!$habitaciones) {
+    die('No se pudieron cargar las habitaciones.');
+}
+
+$reservas = $conn->query(
+    "SELECT idHabitacion, fechaIngreso, fechaSalida
+     FROM reserva
+     WHERE COALESCE(estado, '') <> 'Cancelada' AND fechaSalida >= CURDATE()
+     ORDER BY fechaIngreso ASC"
+);
+
+if (!$reservas) {
+    die('No se pudo consultar la disponibilidad de las habitaciones.');
+}
+
+$reservasPorHabitacion = [];
+while ($reserva = $reservas->fetch_assoc()) {
+    $reservasPorHabitacion[$reserva['idHabitacion']][] = [
+        'inicio' => $reserva['fechaIngreso'],
+        'fin' => $reserva['fechaSalida'],
+    ];
+}
 
 $imagenes = [
     'Premium' => 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1000&q=80',
@@ -80,7 +242,7 @@ function formatPrice($valor)
         .check { width: 0.82rem; height: 0.82rem; border-radius: 50%; border: 1px solid rgba(255,255,255,0.84); display: inline-block; position: relative; }
         .check::after { content: ""; position: absolute; inset: 0.16rem; border-radius: 50%; background: rgba(255,255,255,0.9); }
         .content-wrap { padding: 2.6rem 2.2rem 0; background: var(--bg-sand); }
-        .selector { max-width: 1220px; margin: 0 auto; background: rgba(255,255,255,0.2); border: 1px solid rgba(16,78,90,0.25); border-radius: 999px; padding: 0.45rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; box-shadow: 0 6px 18px rgba(18, 60, 58, 0.08); }
+        .selector { max-width: 1220px; margin: 0 auto; background: rgba(255,255,255,0.2); border: 1px solid rgba(16,78,90,0.25); border-radius: 999px; padding: 0.45rem; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; box-shadow: 0 6px 18px rgba(18, 60, 58, 0.08); }
         .selector-option { appearance: none; border: none; background: transparent; padding: 1rem 1.2rem; border-radius: 999px; color: var(--text); font-size: 1rem; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 0.72rem; cursor: pointer; }
         .selector-option .icon { width: 1.45rem; height: 1.45rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(18,60,58,0.4); font-size: 0.8rem; background: rgba(255,255,255,0.22); }
         .selector-option.active { background: linear-gradient(180deg, rgba(7,72,78,1), rgba(13,95,87,1)); color: #f6f3ee; }
@@ -92,7 +254,10 @@ function formatPrice($valor)
         .pill { border: 1px solid rgba(18,60,58,0.35); border-radius: 999px; padding: 0.45rem 0.8rem; font-size: 0.73rem; background: rgba(255,255,255,0.08); color: var(--text); }
         .room-grid { max-width: 1220px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 1.3rem; padding-bottom: 3.5rem; }
         .room-card { background: rgba(255,255,255,0.14); border: 1px solid rgba(18,60,58,0.28); border-radius: 1.1rem; overflow: hidden; box-shadow: 0 8px 22px rgba(15, 58, 60, 0.06); }
-        .room-image { height: 235px; background-size: cover; background-position: center; }
+        .room-image { height: 235px; background-size: cover; background-position: center; position: relative; }
+        .room-card.unavailable .room-image,
+        .room-card.reserved .room-image { filter: grayscale(1) brightness(0.75); }
+        .room-status { position: absolute; inset: auto 0 0; padding: 0.7rem 1rem; background: rgba(11,45,49,0.82); color: #fff; font-size: 0.82rem; font-weight: 700; text-align: center; }
         .room-card_body { padding: 1rem 1rem 1.1rem; }
         .room-meta { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-bottom: 0.8rem; }
         .room-price { font-size: 1.12rem; font-weight: 700; color: var(--text); }
@@ -103,6 +268,21 @@ function formatPrice($valor)
         .price-tag strong { font-size: 1.1rem; font-weight: 700; }
         .price-tag span { font-size: 0.7rem; color: var(--muted); text-transform: lowercase; }
         .reserve-btn { border: 1px solid rgba(11, 90, 97, 0.65); background: rgba(14, 81, 93, 0.04); color: var(--green); border-radius: 999px; padding: 0.7rem 1.1rem; font-size: 0.76rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+        .room-card.unavailable .reserve-btn { border-color: #777; color: #555; }
+        .availability-panel { border-top: 1px solid rgba(18,60,58,0.22); padding: 1rem; }
+        .availability-summary { margin-bottom: 0.9rem; font-size: 0.85rem; line-height: 1.5; }
+        .booking-search { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin: 0.8rem 0; }
+        .booking-search label { display: block; margin-bottom: 0.25rem; font-size: 0.78rem; }
+        .booking-search input[type="date"] { width: 100%; min-height: 2.5rem; border: 1px solid rgba(18,60,58,0.35); border-radius: 0.6rem; padding: 0.4rem; background: rgba(255,255,255,0.75); color: var(--text); }
+        .booking-search .reserve-btn { grid-column: 1 / -1; width: 100%; }
+        .calendar-controls { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; }
+        .calendar-nav { border: 1px solid rgba(18,60,58,0.35); border-radius: 50%; background: transparent; color: var(--text); width: 2rem; height: 2rem; cursor: pointer; font-size: 1.2rem; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.25rem; text-align: center; font-size: 0.78rem; }
+        .calendar-day { min-height: 2rem; display: grid; place-items: center; border-radius: 50%; }
+        .calendar-weekday { color: var(--muted); font-size: 0.68rem; font-weight: 700; }
+        .calendar-day.booked { background: #777; color: #fff; }
+        .calendar-legend { display: flex; align-items: center; gap: 0.45rem; margin-top: 0.65rem; color: var(--muted); font-size: 0.75rem; }
+        .calendar-legend span { width: 0.8rem; height: 0.8rem; border-radius: 50%; background: #777; }
         .journey { max-width: 1220px; margin: 0 auto; display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.4rem; padding-bottom: 2rem; }
         .experience { background: linear-gradient(rgba(12, 49, 52, 0.48), rgba(12,49,52,0.48)), url('https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1200&q=80') center/cover no-repeat; color: #f5efe7; border-radius: 1.4rem; min-height: 500px; display: flex; flex-direction: column; justify-content: flex-end; padding: 2rem 2rem 1.4rem; border: 1px solid rgba(12, 50, 54, 0.3); }
         .experience .eyebrow { display: inline-block; width: fit-content; font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; padding: 0.45rem 0.7rem; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.25); }
@@ -132,10 +312,11 @@ function formatPrice($valor)
                 <span>Hotel Pacific Reef</span>
             </a>
             <nav class="top-nav" aria-label="Navegación principal">
+                <a href="habitaciones.php">Detalles habitaciones</a>
                 <a href="#">Destinos</a>
                 <a href="#">Hoteles</a>
                 <a href="#">Inspiración</a>
-                <a href="#" class="cta">Mis reservas</a>
+                <a href="mis_reservas.php" class="cta">Mis reservas</a>
             </nav>
         </header>
 
@@ -154,8 +335,22 @@ function formatPrice($valor)
             </section>
 
             <div class="content-wrap">
-                <div class="selector" aria-label="Selecciona tipo de alojamiento">
-                    <button class="selector-option active" type="button" data-filter="premium">
+                <?php if ($mensajeReserva !== ''): ?>
+                    <div class="type-toolbar" role="status"><span class="pill"><?php echo htmlspecialchars($mensajeReserva); ?></span></div>
+                <?php endif; ?>
+                <?php if ($consultaDisponibilidad !== null): ?>
+                    <div class="type-toolbar" role="status"><span class="pill"><?php echo htmlspecialchars($consultaDisponibilidad['mensaje']); ?></span></div>
+                <?php endif; ?>
+                <div class="selector" aria-label="Filtra habitaciones">
+                    <button class="selector-option active" type="button" data-filter="all">
+                        <span class="icon">◇</span>
+                        <span>Todas</span>
+                    </button>
+                    <button class="selector-option" type="button" data-filter="reserved">
+                        <span class="icon">●</span>
+                        <span>Reservadas</span>
+                    </button>
+                    <button class="selector-option" type="button" data-filter="premium">
                         <span class="icon">◌</span>
                         <span>Premium</span>
                     </button>
@@ -167,16 +362,14 @@ function formatPrice($valor)
 
                 <div class="listing-head">
                     <div>
-                        <h2 class="listing-title">Nuestra selección Premium</h2>
-                        <div class="listing-sub"><?php echo $habitaciones->num_rows; ?> alojamientos seleccionados uno a uno</div>
+                        <h2 class="listing-title">Todas las habitaciones</h2>
+                        <div class="listing-sub" id="room-count"><?php echo $habitaciones->num_rows; ?> habitaciones</div>
                     </div>
                     <div class="sort">Ordenar: Recomendados ▾</div>
                 </div>
 
                 <div class="type-toolbar" aria-label="Filtros">
-                    <span class="pill">Fechas: 12-15 oct</span>
-                    <span class="pill">2 huéspedes</span>
-                    <span class="pill">Filtros</span>
+                    <span class="pill">Fechas no disponibles marcadas en el calendario</span>
                 </div>
 
                 <div class="room-grid" id="room-list">
@@ -184,8 +377,57 @@ function formatPrice($valor)
                         <?php while ($habitacion = $habitaciones->fetch_assoc()): ?>
                             <?php $tipo = getRoomType($habitacion['categoria'] ?? 'Turista'); ?>
                             <?php $precio = (float) ($habitacion['valorDiario'] ?? 0); ?>
-                            <article class="room-card" data-type="<?php echo htmlspecialchars($tipo); ?>">
-                                <div class="room-image" style="background-image: url('<?php echo htmlspecialchars($imagenes[$habitacion['categoria']] ?? $imagenes['Turista']); ?>');"></div>
+                            <?php
+                            $estado = $habitacion['estado'] ?? '';
+                            $fechasOcupadas = $reservasPorHabitacion[$habitacion['idHabitacion']] ?? [];
+                            $hoy = date('Y-m-d');
+                            $reservaActual = false;
+                            $proximaReserva = null;
+                            $disponibleDesde = null;
+                            foreach ($fechasOcupadas as $fechaOcupada) {
+                                if ($fechaOcupada['inicio'] <= $hoy && $fechaOcupada['fin'] >= $hoy) {
+                                    $reservaActual = true;
+                                    $disponibleDesde = date('Y-m-d', strtotime($fechaOcupada['fin'] . ' +1 day'));
+                                } elseif ($fechaOcupada['inicio'] > $hoy && $proximaReserva === null) {
+                                    $proximaReserva = $fechaOcupada;
+                                }
+                            }
+                            if ($disponibleDesde === null && $proximaReserva !== null) {
+                                $disponibleDesde = date('Y-m-d', strtotime($proximaReserva['fin'] . ' +1 day'));
+                            }
+                            if ($disponibleDesde !== null) {
+                                do {
+                                    $fechaDisponibleAnterior = $disponibleDesde;
+                                    foreach ($fechasOcupadas as $fechaOcupada) {
+                                        if ($fechaOcupada['inicio'] <= $disponibleDesde && $fechaOcupada['fin'] >= $disponibleDesde) {
+                                            $disponibleDesde = date('Y-m-d', strtotime($fechaOcupada['fin'] . ' +1 day'));
+                                        }
+                                    }
+                                } while ($disponibleDesde !== $fechaDisponibleAnterior);
+                            }
+                            $bloqueoFijo = $estado !== 'Disponible' && !($estado === 'Ocupada' && $reservaActual);
+                            $noDisponible = $estado !== 'Disponible' || $reservaActual;
+                            $disponibilidad = htmlspecialchars(
+                                json_encode([
+                                    'reservas' => $fechasOcupadas,
+                                    'bloqueoFijo' => $bloqueoFijo,
+                                    'reservadaAhora' => $reservaActual,
+                                    'proximaReserva' => $proximaReserva,
+                                    'disponibleDesde' => $disponibleDesde,
+                                ], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP),
+                                ENT_QUOTES,
+                                'UTF-8'
+                            );
+                            ?>
+                            <?php $esResultadoConsulta = $consultaDisponibilidad && (int) $consultaDisponibilidad['idHabitacion'] === (int) $habitacion['idHabitacion']; ?>
+                            <article id="habitacion-<?php echo (int) $habitacion['idHabitacion']; ?>" class="room-card<?php echo $noDisponible ? ' unavailable' : ''; ?><?php echo ($reservaActual || $proximaReserva !== null) ? ' reserved' : ''; ?>" data-result="<?php echo $esResultadoConsulta ? 'true' : 'false'; ?>" data-type="<?php echo htmlspecialchars($tipo); ?>">
+                                <div class="room-image" style="background-image: url('<?php echo htmlspecialchars($imagenes[$habitacion['categoria']] ?? $imagenes['Turista']); ?>');">
+                                    <?php if ($reservaActual): ?>
+                                        <span class="room-status">Reservada · disponible nuevamente desde <?php echo htmlspecialchars(date('d-m-Y', strtotime($disponibleDesde))); ?></span>
+                                    <?php elseif ($proximaReserva !== null): ?>
+                                        <span class="room-status">Reservada del <?php echo htmlspecialchars(date('d-m-Y', strtotime($proximaReserva['inicio']))); ?> al <?php echo htmlspecialchars(date('d-m-Y', strtotime($proximaReserva['fin']))); ?> · disponible nuevamente desde <?php echo htmlspecialchars(date('d-m-Y', strtotime($disponibleDesde))); ?></span>
+                                    <?php endif; ?>
+                                </div>
                                 <div class="room-card_body">
                                     <div class="room-meta">
                                         <div class="room-price"><?php echo htmlspecialchars(formatPrice($precio)); ?></div>
@@ -197,9 +439,42 @@ function formatPrice($valor)
                                             <strong><?php echo htmlspecialchars(formatPrice($precio)); ?></strong>
                                             <span>por noche · tasas incluidas</span>
                                         </div>
-                                        <button class="reserve-btn" type="button">Ver habitación</button>
+                                        <button class="reserve-btn availability-toggle" type="button" aria-expanded="false" data-availability="<?php echo $disponibilidad; ?>">Consultar disponibilidad</button>
                                     </div>
                                 </div>
+                                <section class="availability-panel" <?php echo $esResultadoConsulta ? '' : 'hidden'; ?> aria-label="Calendario de disponibilidad de habitación <?php echo htmlspecialchars($habitacion['numero']); ?>">
+                                    <div class="availability-summary"><?php echo $esResultadoConsulta ? htmlspecialchars($consultaDisponibilidad['mensaje']) : ''; ?></div>
+                                    <form method="POST" class="booking-search">
+                                        <input type="hidden" name="csrfReserva" value="<?php echo htmlspecialchars($_SESSION['csrfReserva']); ?>">
+                                        <input type="hidden" name="idHabitacion" value="<?php echo (int) $habitacion['idHabitacion']; ?>">
+                                        <div class="mb-2">
+                                            <label for="ingreso-<?php echo (int) $habitacion['idHabitacion']; ?>">Ingreso</label>
+                                            <input id="ingreso-<?php echo (int) $habitacion['idHabitacion']; ?>" type="date" name="fechaIngreso" min="<?php echo date('Y-m-d'); ?>" value="<?php echo $consultaDisponibilidad && (int) $consultaDisponibilidad['idHabitacion'] === (int) $habitacion['idHabitacion'] ? htmlspecialchars($fechaIngresoConsulta) : date('Y-m-d'); ?>" required>
+                                        </div>
+                                        <div class="mb-2">
+                                            <label for="salida-<?php echo (int) $habitacion['idHabitacion']; ?>">Salida</label>
+                                            <input id="salida-<?php echo (int) $habitacion['idHabitacion']; ?>" type="date" name="fechaSalida" min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>" value="<?php echo $consultaDisponibilidad && (int) $consultaDisponibilidad['idHabitacion'] === (int) $habitacion['idHabitacion'] ? htmlspecialchars($fechaSalidaConsulta) : date('Y-m-d', strtotime('+1 day')); ?>" required>
+                                        </div>
+                                        <button class="reserve-btn" type="submit" name="accion" value="consultar_disponibilidad">Consultar disponibilidad</button>
+                                    </form>
+                                    <?php if ($esResultadoConsulta && $consultaDisponibilidad['disponible']): ?>
+                                        <form method="POST" class="booking-search">
+                                            <input type="hidden" name="csrfReserva" value="<?php echo htmlspecialchars($_SESSION['csrfReserva']); ?>">
+                                            <input type="hidden" name="accion" value="reservar_habitacion">
+                                            <input type="hidden" name="idHabitacion" value="<?php echo (int) $habitacion['idHabitacion']; ?>">
+                                            <input type="hidden" name="fechaIngreso" value="<?php echo htmlspecialchars($fechaIngresoConsulta); ?>">
+                                            <input type="hidden" name="fechaSalida" value="<?php echo htmlspecialchars($fechaSalidaConsulta); ?>">
+                                            <button class="reserve-btn" type="submit">Confirmar reserva</button>
+                                        </form>
+                                    <?php endif; ?>
+                                    <div class="calendar-controls">
+                                        <button type="button" class="calendar-nav" data-direction="-1" aria-label="Mes anterior">‹</button>
+                                        <strong class="calendar-month"></strong>
+                                        <button type="button" class="calendar-nav" data-direction="1" aria-label="Mes siguiente">›</button>
+                                    </div>
+                                    <div class="calendar-grid" role="grid"></div>
+                                    <div class="calendar-legend"><span></span> No disponible</div>
+                                </section>
                             </article>
                         <?php endwhile; ?>
                     <?php else: ?>
@@ -242,17 +517,125 @@ function formatPrice($valor)
     <script>
         const selectorButtons = document.querySelectorAll('.selector-option');
         const cards = document.querySelectorAll('.room-card');
+        const resultCard = document.querySelector('.room-card[data-result="true"]');
+        if (resultCard) {
+            resultCard.scrollIntoView({ block: 'center' });
+        }
+
+        document.querySelectorAll('.booking-search').forEach(form => {
+            const arrival = form.querySelector('[name="fechaIngreso"]');
+            const departure = form.querySelector('[name="fechaSalida"]');
+            if (!arrival || !departure) return;
+            arrival.addEventListener('change', () => {
+                const nextDay = new Date(`${arrival.value}T00:00:00`);
+                nextDay.setDate(nextDay.getDate() + 1);
+                const minDeparture = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+                departure.min = minDeparture;
+                if (departure.value < minDeparture) departure.value = minDeparture;
+            });
+        });
 
         selectorButtons.forEach(button => {
             button.addEventListener('click', () => {
                 selectorButtons.forEach(btn => btn.classList.toggle('active', btn === button));
                 const filter = button.dataset.filter;
                 const title = document.querySelector('.listing-title');
-                title.textContent = filter === 'premium' ? 'Nuestra selección Premium' : 'Nuestra selección Económica';
+                const titles = {
+                    all: 'Todas las habitaciones',
+                    reserved: 'Habitaciones reservadas',
+                    premium: 'Nuestra selección Premium',
+                    economica: 'Nuestra selección Económica',
+                };
+                title.textContent = titles[filter];
+                let visibleCount = 0;
 
                 cards.forEach(card => {
-                    const match = filter === 'premium' ? card.dataset.type === 'premium' : card.dataset.type === 'economica';
+                    const match = filter === 'all'
+                        || (filter === 'reserved' && card.classList.contains('reserved'))
+                        || card.dataset.type === filter;
                     card.style.display = match ? 'block' : 'none';
+                    if (match) visibleCount++;
+                });
+                document.querySelector('#room-count').textContent = `${visibleCount} habitaciones`;
+            });
+        });
+
+        const weekdayNames = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'];
+        const monthFormatter = new Intl.DateTimeFormat('es-CL', { month: 'long', year: 'numeric' });
+        const dateKey = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+        document.querySelectorAll('.availability-toggle').forEach(button => {
+            const card = button.closest('.room-card');
+            const panel = card.querySelector('.availability-panel');
+            const data = JSON.parse(button.dataset.availability);
+            let month = new Date();
+            month.setDate(1);
+
+            const renderCalendar = () => {
+                const grid = panel.querySelector('.calendar-grid');
+                const year = month.getFullYear();
+                const monthIndex = month.getMonth();
+                const firstDay = (new Date(year, monthIndex, 1).getDay() + 6) % 7;
+                const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+                panel.querySelector('.calendar-month').textContent = monthFormatter.format(month);
+                grid.replaceChildren();
+
+                weekdayNames.forEach(name => {
+                    const weekday = document.createElement('span');
+                    weekday.className = 'calendar-day calendar-weekday';
+                    weekday.textContent = name;
+                    grid.append(weekday);
+                });
+
+                for (let i = 0; i < firstDay; i++) {
+                    grid.append(document.createElement('span'));
+                }
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const date = new Date(year, monthIndex, day);
+                    const key = dateKey(date);
+                    const unavailable = data.bloqueoFijo || data.reservas.some(range => range.inicio <= key && key <= range.fin);
+                    const cell = document.createElement('span');
+                    cell.className = `calendar-day${unavailable ? ' booked' : ''}`;
+                    cell.textContent = day;
+                    cell.setAttribute('role', 'gridcell');
+                    if (unavailable) {
+                        cell.setAttribute('aria-label', `${day} no disponible`);
+                    }
+                    grid.append(cell);
+                }
+            };
+
+            button.addEventListener('click', () => {
+                const isOpen = button.getAttribute('aria-expanded') === 'true';
+                button.setAttribute('aria-expanded', String(!isOpen));
+                panel.hidden = isOpen;
+                if (!isOpen) {
+                    const summary = panel.querySelector('.availability-summary');
+                    if (data.reservadaAhora && data.disponibleDesde) {
+                        const formattedDate = new Intl.DateTimeFormat('es-CL', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${data.disponibleDesde}T00:00:00Z`));
+                        summary.textContent = `Habitación reservada. Disponible nuevamente desde el ${formattedDate}.`;
+                    } else if (data.proximaReserva) {
+                        const fechaInicio = new Intl.DateTimeFormat('es-CL', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${data.proximaReserva.inicio}T00:00:00Z`));
+                        const fechaFin = new Intl.DateTimeFormat('es-CL', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${data.proximaReserva.fin}T00:00:00Z`));
+                        const fechaDisponible = new Intl.DateTimeFormat('es-CL', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${data.disponibleDesde}T00:00:00Z`));
+                        summary.textContent = `Próxima reserva del ${fechaInicio} al ${fechaFin}. Disponible nuevamente desde el ${fechaDisponible}.`;
+                    } else if (data.bloqueoFijo) {
+                        summary.textContent = 'No disponible actualmente. No hay una fecha de disponibilidad registrada.';
+                    } else if (data.disponibleDesde) {
+                        const formattedDate = new Intl.DateTimeFormat('es-CL', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${data.disponibleDesde}T00:00:00Z`));
+                        summary.textContent = `No disponible actualmente. Disponible nuevamente desde el ${formattedDate}.`;
+                    } else {
+                        summary.textContent = 'Consulta los días ocupados en el calendario.';
+                    }
+                    renderCalendar();
+                }
+            });
+
+            panel.querySelectorAll('.calendar-nav').forEach(nav => {
+                nav.addEventListener('click', () => {
+                    month.setMonth(month.getMonth() + Number(nav.dataset.direction));
+                    renderCalendar();
                 });
             });
         });
