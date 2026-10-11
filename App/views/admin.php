@@ -5,6 +5,7 @@ if (!isset($_SESSION['usuario']) || $_SESSION['rol'] != 1) {
     header('Location: ../index.php');
     exit();
 }
+$_SESSION['csrfLogout'] = $_SESSION['csrfLogout'] ?? bin2hex(random_bytes(32));
 
 require_once '../config/database.php';
 
@@ -126,11 +127,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nombre = safeString($conn, $_POST['nombre'] ?? '');
         $email = safeString($conn, $_POST['email'] ?? '');
         $telefono = safeString($conn, $_POST['telefono'] ?? '');
-        $password = safeString($conn, $_POST['password'] ?? '');
+        $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
 
         if ($id !== '') {
-            $sql = "UPDATE cliente SET nombre='$nombre', email='$email', telefono='$telefono', password='$password' WHERE idCliente='$id'";
+            $sql = "UPDATE cliente SET nombre='$nombre', email='$email', telefono='$telefono' WHERE idCliente='$id'";
+            if ($password !== '') {
+                $password = safeString($conn, password_hash($password, PASSWORD_DEFAULT));
+                $sql = "UPDATE cliente SET nombre='$nombre', email='$email', telefono='$telefono', password='$password' WHERE idCliente='$id'";
+            }
         } else {
+            $password = safeString($conn, password_hash($password, PASSWORD_DEFAULT));
             $sql = "INSERT INTO cliente (nombre, email, telefono, password) VALUES ('$nombre', '$email', '$telefono', '$password')";
         }
 
@@ -311,7 +317,10 @@ if (!$reservasActivas) {
         </a>
         <nav class="top-nav" aria-label="Navegación principal">
             <span>Bienvenido, <?php echo htmlspecialchars($_SESSION['usuario']); ?></span>
-            <a id="cerrar-sesion" href="../index.php" class="cta">Cerrar sesión</a>
+            <form class="logout-form" action="../controller/logout.php" method="POST">
+                <input type="hidden" name="csrfLogout" value="<?php echo htmlspecialchars($_SESSION['csrfLogout'], ENT_QUOTES, 'UTF-8'); ?>">
+                <button id="cerrar-sesion" type="submit" class="logout-button cta">Cerrar sesión</button>
+            </form>
         </nav>
     </header>
 
@@ -437,7 +446,7 @@ if (!$reservasActivas) {
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Contraseña</label>
-                                <input id="password-cliente" type="text" name="password" class="form-control" value="<?php echo htmlspecialchars($clienteEdit['password'] ?? ''); ?>" required>
+                                <input id="password-cliente" type="password" name="password" class="form-control" minlength="8" maxlength="72" autocomplete="new-password" placeholder="Dejar vacío para mantener la actual">
                             </div>
 
                             <button id="guardar-cliente" type="submit" class="btn btn-success w-100">Actualizar cliente</button>

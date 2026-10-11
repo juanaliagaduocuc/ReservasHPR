@@ -1,8 +1,20 @@
 <?php
+session_start();
+
+if (!isset($_SESSION['idCliente'], $_SESSION['cliente'])) {
+    header('Location: ../index.php');
+    exit();
+}
+
+$dias = filter_var($_POST['dias'] ?? null, FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 1],
+]);
+if (!$dias) {
+    http_response_code(400);
+    exit('Cantidad de noches inválida.');
+}
 
 $valorDiario = 50000;
-
-$dias = $_POST["dias"];
 
 $total = $valorDiario * $dias;
 

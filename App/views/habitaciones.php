@@ -5,6 +5,7 @@ if (!isset($_SESSION['cliente'], $_SESSION['idCliente'])) {
     header('Location: ../index.php');
     exit();
 }
+$_SESSION['csrfLogout'] = $_SESSION['csrfLogout'] ?? bin2hex(random_bytes(32));
 
 require_once '../config/database.php';
 
@@ -81,6 +82,10 @@ function fechaHabitacion($fecha)
         <nav class="nav" aria-label="Navegación">
             <a href="cliente.php">Catálogo principal</a>
             <a href="mis_reservas.php">Mis reservas</a>
+            <form class="logout-form" action="../controller/logout.php" method="POST">
+                <input type="hidden" name="csrfLogout" value="<?php echo htmlspecialchars($_SESSION['csrfLogout'], ENT_QUOTES, 'UTF-8'); ?>">
+                <button type="submit" class="logout-button">Cerrar sesión</button>
+            </form>
         </nav>
     </header>
     <main>

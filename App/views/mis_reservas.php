@@ -5,6 +5,7 @@ if (!isset($_SESSION['cliente'], $_SESSION['idCliente'])) {
     header('Location: ../index.php');
     exit();
 }
+$_SESSION['csrfLogout'] = $_SESSION['csrfLogout'] ?? bin2hex(random_bytes(32));
 
 require_once '../config/database.php';
 
@@ -97,7 +98,13 @@ function estadoReservaCliente($estado, $ingreso, $salida)
 <body class="page-reservas">
     <header class="topbar">
         <a href="cliente.php" class="brand">Hotel Pacific Reef</a>
-        <a href="habitaciones.php" class="back">Volver a habitaciones</a>
+        <nav class="reservas-nav" aria-label="Navegación">
+            <a href="habitaciones.php" class="back">Volver a habitaciones</a>
+            <form class="logout-form" action="../controller/logout.php" method="POST">
+                <input type="hidden" name="csrfLogout" value="<?php echo htmlspecialchars($_SESSION['csrfLogout'], ENT_QUOTES, 'UTF-8'); ?>">
+                <button type="submit" class="logout-button">Cerrar sesión</button>
+            </form>
+        </nav>
     </header>
     <main>
         <h1>Mis reservas</h1>
@@ -118,6 +125,7 @@ function estadoReservaCliente($estado, $ingreso, $salida)
                             <th>Total</th>
                             <th>Anticipo</th>
                             <th>Estado</th>
+                            <th>Código QR</th>
                             <th>Acción</th>
                         </tr>
                     </thead>
@@ -129,6 +137,17 @@ function estadoReservaCliente($estado, $ingreso, $salida)
                             $estadoReserva = estadoReservaCliente($reserva['estado'], $reserva['fechaIngreso'], $reserva['fechaSalida']);
                             $puedeCancelar = $reserva['estado'] !== 'Cancelada'
                                 && $reserva['fechaIngreso'] > date('Y-m-d', strtotime('+1 day'));
+                            $resumenReservaQr = implode("\n", [
+                                'HOTEL PACIFIC REEF',
+                                'Reserva: ' . (int) $reserva['idReserva'],
+                                'Habitacion: ' . $reserva['numero'] . ' (' . ($reserva['categoria'] ?? '') . ')',
+                                'Ingreso: ' . date('d-m-Y', strtotime($reserva['fechaIngreso'])),
+                                'Salida: ' . date('d-m-Y', strtotime($reserva['fechaSalida'])),
+                                'Noches: ' . (int) $reserva['cantidadDias'],
+                                'Total: ' . (int) $reserva['valorTotal'],
+                                'Anticipo: ' . (int) $reserva['valorAnticipo'],
+                                'Estado: ' . $estadoReserva,
+                            ]);
                             ?>
                             <tr>
                                 <td><?php echo htmlspecialchars($reserva['numero']); ?></td>
@@ -139,6 +158,13 @@ function estadoReservaCliente($estado, $ingreso, $salida)
                                 <td>$ <?php echo number_format((float) $reserva['valorTotal'], 0, ',', '.'); ?></td>
                                 <td>$ <?php echo number_format((float) $reserva['valorAnticipo'], 0, ',', '.'); ?></td>
                                 <td id="estado-<?php echo $numeroFila; ?>"><span class="status"><?php echo htmlspecialchars($estadoReserva); ?></span></td>
+                                <td class="reservation-qr-cell">
+                                    <details class="reservation-qr-details">
+                                        <summary>Ver reserva #<?php echo (int) $reserva['idReserva']; ?> y su QR</summary>
+                                        <div class="reservation-qr" data-reservation-qr="<?php echo htmlspecialchars($resumenReservaQr, ENT_QUOTES, 'UTF-8'); ?>" role="img" aria-label="Código QR de la reserva <?php echo (int) $reserva['idReserva']; ?>"></div>
+                                        <span class="reservation-qr-label">Presenta este código al hacer check-in</span>
+                                    </details>
+                                </td>
                                 <td>
                                     <?php if ($puedeCancelar): ?>
                                         <form class="cancel-form" method="POST" onsubmit="return confirm('¿Cancelar esta reserva?');">
@@ -160,6 +186,28 @@ function estadoReservaCliente($estado, $ingreso, $salida)
             <?php endif; ?>
         </div>
     </main>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+        document.querySelectorAll('.reservation-qr-details').forEach((details) => {
+            details.addEventListener('toggle', () => {
+                const qr = details.querySelector('.reservation-qr');
+                if (!details.open || qr.dataset.generated) return;
+
+                if (typeof QRCode === 'undefined') {
+                    qr.textContent = 'No se pudo generar el código QR. Verifica tu conexión e inténtalo de nuevo.';
+                    return;
+                }
+
+                new QRCode(qr, {
+                    text: qr.dataset.reservationQr,
+                    width: 160,
+                    height: 160,
+                    correctLevel: QRCode.CorrectLevel.M,
+                });
+                qr.dataset.generated = 'true';
+            });
+        });
+    </script>
 </body>
 </html>
 <?php $stmt->close(); ?>

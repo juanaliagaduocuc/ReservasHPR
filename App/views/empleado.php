@@ -5,6 +5,7 @@ if (!isset($_SESSION['usuario']) || $_SESSION['rol'] != 2) {
     header('Location: ../index.php');
     exit();
 }
+$_SESSION['csrfLogout'] = $_SESSION['csrfLogout'] ?? bin2hex(random_bytes(32));
 
 require_once '../config/database.php';
 
@@ -76,7 +77,10 @@ $ocupadas = $conn->query("SELECT r.*, h.numero, h.idCategoria, c.nombre AS nombr
         </a>
         <nav class="top-nav" aria-label="Navegación principal">
             <span>Bienvenido, <?php echo htmlspecialchars($_SESSION['usuario']); ?></span>
-            <a href="../index.php" class="cta">Cerrar sesión</a>
+            <form class="logout-form" action="../controller/logout.php" method="POST">
+                <input type="hidden" name="csrfLogout" value="<?php echo htmlspecialchars($_SESSION['csrfLogout'], ENT_QUOTES, 'UTF-8'); ?>">
+                <button type="submit" class="logout-button">Cerrar sesión</button>
+            </form>
         </nav>
     </header>
 
