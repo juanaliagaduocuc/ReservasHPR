@@ -89,8 +89,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', $a
     $errorFechas = validarFechasReserva($fechaIngresoConsulta, $fechaSalidaConsulta);
     $disponible = false;
     $resultadoConsulta = $errorFechas;
+    $credencialesReservaValidas = true;
 
-    if ($idHabitacionConsulta && $errorFechas === '') {
+    if ($idHabitacionConsulta && $errorFechas === '' && $accionReserva === 'reservar_habitacion') {
+        $passwordReserva = is_string($_POST['passwordReserva'] ?? null) ? $_POST['passwordReserva'] : '';
+        $idCliente = (int) $_SESSION['idCliente'];
+        $stmt = $conn->prepare('SELECT password FROM cliente WHERE idCliente = ? AND estado = 1');
+        $stmt->bind_param('i', $idCliente);
+        $stmt->execute();
+        $stmt->bind_result($passwordGuardada);
+        $clienteActivo = $stmt->fetch();
+        $stmt->close();
+
+        $credencialesReservaValidas = $clienteActivo && $passwordReserva !== ''
+            && (password_verify($passwordReserva, $passwordGuardada) || hash_equals($passwordGuardada, $passwordReserva));
+        if (!$credencialesReservaValidas) {
+            $disponible = true;
+            $resultadoConsulta = 'La contraseña ingresada no es correcta. Verifícala para confirmar la reserva.';
+        }
+    }
+
+    if ($idHabitacionConsulta && $errorFechas === '' && $credencialesReservaValidas) {
         try {
             if ($accionReserva === 'reservar_habitacion') {
                 $conn->begin_transaction();
@@ -375,6 +394,8 @@ function formatPrice($valor)
                                             <input type="hidden" name="idHabitacion" value="<?php echo (int) $habitacion['idHabitacion']; ?>">
                                             <input type="hidden" name="fechaIngreso" value="<?php echo htmlspecialchars($fechaIngresoConsulta); ?>">
                                             <input type="hidden" name="fechaSalida" value="<?php echo htmlspecialchars($fechaSalidaConsulta); ?>">
+                                            <label for="password-reserva-<?php echo (int) $habitacion['idHabitacion']; ?>">Ingresa tu contraseña para confirmar la reserva</label>
+                                            <input id="password-reserva-<?php echo (int) $habitacion['idHabitacion']; ?>" type="password" name="passwordReserva" autocomplete="current-password" required>
                                             <button class="reserve-btn" type="submit">Confirmar reserva</button>
                                         </form>
                                     <?php endif; ?>

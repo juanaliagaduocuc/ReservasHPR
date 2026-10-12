@@ -101,6 +101,25 @@ describe('test purebas epicas clientes', () => {
       .and('contain.text', 'Reservada')
   })
 
+  it('rechaza confirmar una reserva con contraseña incorrecta', () => {
+    ingresoCliente('mfernandez@email.cl','Cliente123')
+    datosConsulta(
+      '#consultar-disponibilidad-calendario-32',
+      '#ingreso-32',
+      '#salida-32',
+      '#consultar-disponibilidad-fechas-32',
+      '2026-10-20',
+      '2026-10-27'
+    )
+    cy.get('#password-reserva-32').type('ClaveIncorrecta123')
+    cy.get('form.booking-search')
+      .contains('button', 'Confirmar reserva')
+      .click()
+    cy.get('.availability-summary')
+      .should('contain.text', 'La contraseña ingresada no es correcta.')
+    cy.get('#mensaje-reserva').should('not.exist')
+  })
+
   it('reserva de habitacion y cancelarla ', () => {
     ingresoCliente('mfernandez@email.cl','Cliente123')
     datosConsulta('#consultar-disponibilidad-calendario-32',
@@ -112,6 +131,9 @@ describe('test purebas epicas clientes', () => {
       .wait(500)
       .contains('button', 'Confirmar reserva')
       .wait(500)
+    cy.get('#password-reserva-32').type('Cliente123')
+    cy.get('form.booking-search')
+      .contains('button', 'Confirmar reserva')
       .click()
       .wait(500)
     cy.get('#mensaje-reserva')
@@ -142,6 +164,9 @@ describe('test purebas epicas clientes', () => {
       .wait(500)
       .contains('button', 'Confirmar reserva')
       .wait(500)
+    cy.get('#password-reserva-32').type('Cliente123')
+    cy.get('form.booking-search')
+      .contains('button', 'Confirmar reserva')
       .click()
       .wait(500)
     cy.get('#mensaje-reserva')
