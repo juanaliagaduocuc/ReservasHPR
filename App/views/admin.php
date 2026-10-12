@@ -9,10 +9,10 @@ $_SESSION['csrfLogout'] = $_SESSION['csrfLogout'] ?? bin2hex(random_bytes(32));
 
 require_once '../config/database.php';
 
-function getColumnList($conn, $table)
+function getReservaColumnList($conn)
 {
     $cols = [];
-    $result = $conn->query("SHOW COLUMNS FROM `" . $table . "`");
+    $result = $conn->query('SHOW COLUMNS FROM `reserva`');
     if ($result) {
         while ($row = $result->fetch_assoc()) {
             $cols[] = $row['Field'];
@@ -21,9 +21,9 @@ function getColumnList($conn, $table)
     return $cols;
 }
 
-function safeString($conn, $value)
+function textoEntrada($value)
 {
-    return $conn->real_escape_string(trim($value));
+    return is_string($value) ? trim($value) : '';
 }
 
 function formatFechaEs($fecha)
@@ -68,27 +68,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accion = $_POST['accion'] ?? '';
 
     if ($accion === 'guardar_habitacion') {
-        $id = $_POST['id_habitacion'] ?? '';
-        $numero = safeString($conn, $_POST['numero'] ?? '');
-        $tipo = intval($_POST['idCategoria'] ?? $_POST['tipo'] ?? 0);
+        $id = filter_var($_POST['id_habitacion'] ?? null, FILTER_VALIDATE_INT);
+        $id = $id !== false && $id > 0 ? $id : 0;
+        $numero = textoEntrada($_POST['numero'] ?? null);
+        $tipo = filter_var($_POST['idCategoria'] ?? $_POST['tipo'] ?? 0, FILTER_VALIDATE_INT);
+        $tipo = $tipo !== false && $tipo > 0 ? $tipo : 1;
         $piso = intval($_POST['piso'] ?? 1);
-        $descripcion = safeString($conn, $_POST['descripcion'] ?? '');
-        $equipamiento = safeString($conn, $_POST['equipamiento'] ?? '');
+        $descripcion = textoEntrada($_POST['descripcion'] ?? null);
+        $equipamiento = textoEntrada($_POST['equipamiento'] ?? null);
         $precio = floatval($_POST['precio'] ?? $_POST['valorDiario'] ?? 0);
-        $estado = safeString($conn, $_POST['estado'] ?? 'Disponible');
+        $estado = textoEntrada($_POST['estado'] ?? 'Disponible');
 
-        if ($tipo <= 0) {
-            $tipo = 1;
-        }
-
-        if ($id !== '') {
-            $sql = "UPDATE habitacion SET numero='$numero', piso='$piso', descripcion='$descripcion', equipamiento='$equipamiento', valorDiario='$precio', estado='$estado', idCategoria='$tipo' WHERE idHabitacion='$id'";
+        if ($id > 0) {
+            $stmt = $conn->prepare('UPDATE habitacion SET numero = ?, piso = ?, descripcion = ?, equipamiento = ?, valorDiario = ?, estado = ?, idCategoria = ? WHERE idHabitacion = ?');
+            $stmt->bind_param('sissdsii', $numero, $piso, $descripcion, $equipamiento, $precio, $estado, $tipo, $id);
         } else {
-            $sql = "INSERT INTO habitacion (numero, piso, descripcion, equipamiento, valorDiario, estado, idCategoria) VALUES ('$numero', '$piso', '$descripcion', '$equipamiento', '$precio', '$estado', '$tipo')";
+            $stmt = $conn->prepare('INSERT INTO habitacion (numero, piso, descripcion, equipamiento, valorDiario, estado, idCategoria) VALUES (?, ?, ?, ?, ?, ?, ?)');
+            $stmt->bind_param('sissdsi', $numero, $piso, $descripcion, $equipamiento, $precio, $estado, $tipo);
         }
 
-        if ($conn->query($sql)) {
-            if ($id !== '') {
+        if ($stmt && $stmt->execute()) {
+            $stmt->close();
+            if ($id > 0) {
                 $mensaje = '¡Habitación actualizada exitosamente!';
                 $tipoMensaje = 'success';
                 $idMensaje = 'mensaje-habitacion-exitoso';
@@ -96,80 +97,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $mensaje = 'Habitación guardada correctamente.';
             }
         } else {
-            $mensaje = ($id !== '' ? 'No se pudo editar la habitación: ' : 'Error al guardar la habitación: ') . $conn->error;
+            $error = $stmt ? $stmt->error : $conn->error;
+            if ($stmt) {
+                $stmt->close();
+            }
+            $mensaje = ($id > 0 ? 'No se pudo editar la habitación: ' : 'Error al guardar la habitación: ') . $error;
             $tipoMensaje = 'danger';
             $idMensaje = 'mensaje-habitacion-error';
         }
     }
 
     if ($accion === 'eliminar_habitacion') {
-        $id = $_POST['id'] ?? 0;
-        $sql = "UPDATE habitacion SET estado='Deshabilitada' WHERE idHabitacion='$id'";
-        if ($conn->query($sql)) {
+        $id = filter_var($_POST['id'] ?? null, FILTER_VALIDATE_INT);
+        $stmt = $conn->prepare("UPDATE habitacion SET estado = 'Deshabilitada' WHERE idHabitacion = ?");
+        $stmt->bind_param('i', $id);
+        if ($stmt->execute()) {
             $mensaje = 'Habitación deshabilitada. Puede reactivarla desde la sección de inactivas.';
         } else {
-            $mensaje = 'Error al deshabilitar la habitación: ' . $conn->error;
+            $mensaje = 'Error al deshabilitar la habitación: ' . $stmt->error;
         }
+        $stmt->close();
     }
 
     if ($accion === 'reactivar_habitacion') {
-        $id = $_POST['id'] ?? 0;
-        $sql = "UPDATE habitacion SET estado='Disponible' WHERE idHabitacion='$id'";
-        if ($conn->query($sql)) {
+        $id = filter_var($_POST['id'] ?? null, FILTER_VALIDATE_INT);
+        $stmt = $conn->prepare("UPDATE habitacion SET estado = 'Disponible' WHERE idHabitacion = ?");
+        $stmt->bind_param('i', $id);
+        if ($stmt->execute()) {
             $mensaje = 'Habitación reactivada correctamente.';
         } else {
-            $mensaje = 'Error al reactivar la habitación: ' . $conn->error;
+            $mensaje = 'Error al reactivar la habitación: ' . $stmt->error;
         }
+        $stmt->close();
     }
 
     if ($accion === 'guardar_cliente') {
-        $id = $_POST['id_cliente'] ?? '';
-        $nombre = safeString($conn, $_POST['nombre'] ?? '');
-        $email = safeString($conn, $_POST['email'] ?? '');
-        $telefono = safeString($conn, $_POST['telefono'] ?? '');
+        $id = filter_var($_POST['id_cliente'] ?? null, FILTER_VALIDATE_INT);
+        $id = $id !== false && $id > 0 ? $id : 0;
+        $nombre = textoEntrada($_POST['nombre'] ?? null);
+        $email = textoEntrada($_POST['email'] ?? null);
+        $telefono = textoEntrada($_POST['telefono'] ?? null);
         $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
 
-        if ($id !== '') {
-            $sql = "UPDATE cliente SET nombre='$nombre', email='$email', telefono='$telefono' WHERE idCliente='$id'";
+        if ($id > 0) {
             if ($password !== '') {
-                $password = safeString($conn, password_hash($password, PASSWORD_DEFAULT));
-                $sql = "UPDATE cliente SET nombre='$nombre', email='$email', telefono='$telefono', password='$password' WHERE idCliente='$id'";
+                $password = password_hash($password, PASSWORD_DEFAULT);
+                $stmt = $conn->prepare('UPDATE cliente SET nombre = ?, email = ?, telefono = ?, password = ? WHERE idCliente = ?');
+                $stmt->bind_param('ssssi', $nombre, $email, $telefono, $password, $id);
+            } else {
+                $stmt = $conn->prepare('UPDATE cliente SET nombre = ?, email = ?, telefono = ? WHERE idCliente = ?');
+                $stmt->bind_param('sssi', $nombre, $email, $telefono, $id);
             }
         } else {
-            $password = safeString($conn, password_hash($password, PASSWORD_DEFAULT));
-            $sql = "INSERT INTO cliente (nombre, email, telefono, password) VALUES ('$nombre', '$email', '$telefono', '$password')";
+            $password = password_hash($password, PASSWORD_DEFAULT);
+            $stmt = $conn->prepare('INSERT INTO cliente (nombre, email, telefono, password) VALUES (?, ?, ?, ?)');
+            $stmt->bind_param('ssss', $nombre, $email, $telefono, $password);
         }
 
-        if ($conn->query($sql)) {
+        if ($stmt && $stmt->execute()) {
             $mensaje = 'Cliente guardado correctamente.';
         } else {
-            $mensaje = 'Error al guardar el cliente: ' . $conn->error;
+            $mensaje = 'Error al guardar el cliente: ' . ($stmt ? $stmt->error : $conn->error);
+        }
+        if ($stmt) {
+            $stmt->close();
         }
     }
 
     if ($accion === 'eliminar_cliente') {
-        $id = $_POST['id'] ?? 0;
-        $sql = "DELETE FROM cliente WHERE idCliente='$id'";
-        if ($conn->query($sql)) {
+        $id = filter_var($_POST['id'] ?? null, FILTER_VALIDATE_INT);
+        $stmt = $conn->prepare('DELETE FROM cliente WHERE idCliente = ?');
+        $stmt->bind_param('i', $id);
+        if ($stmt->execute()) {
             $mensaje = 'Cliente eliminado.';
         } else {
-            $mensaje = 'Error al eliminar el cliente: ' . $conn->error;
+            $mensaje = 'Error al eliminar el cliente: ' . $stmt->error;
         }
+        $stmt->close();
     }
 
     if ($accion === 'guardar_empleado') {
-        $id = $_POST['id_empleado'] ?? '';
-        $nombre = safeString($conn, $_POST['nombre'] ?? '');
-        $email = is_string($_POST['email'] ?? null) ? trim($_POST['email']) : '';
-        $emailSql = safeString($conn, $email);
-        $password = safeString($conn, $_POST['password'] ?? '');
-        $rol = intval($_POST['idRol'] ?? 2);
+        $id = filter_var($_POST['id_empleado'] ?? null, FILTER_VALIDATE_INT);
+        $id = $id !== false && $id > 0 ? $id : 0;
+        $nombre = textoEntrada($_POST['nombre'] ?? null);
+        $email = textoEntrada($_POST['email'] ?? null);
+        $password = textoEntrada($_POST['password'] ?? null);
+        $rol = filter_var($_POST['idRol'] ?? 2, FILTER_VALIDATE_INT);
+        $rol = $rol !== false && $rol > 0 ? $rol : 2;
 
         $verificarEmail = $conn->prepare('SELECT idEmpleado FROM empleado WHERE email = ? AND idEmpleado <> ? LIMIT 1');
         if (!$verificarEmail) {
             throw new RuntimeException('No se pudo verificar el correo del empleado: ' . $conn->error);
         }
-        $idEmpleadoActual = (int) $id;
+        $idEmpleadoActual = $id;
         $verificarEmail->bind_param('si', $email, $idEmpleadoActual);
         if (!$verificarEmail->execute()) {
             $errorVerificacion = $verificarEmail->error;
@@ -185,30 +205,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tipoMensaje = 'danger';
             $idMensaje = 'mensaje-empleado-error';
         } else {
-            if ($id !== '') {
-                $sql = "UPDATE empleado SET nombre='$nombre', email='$emailSql', password='$password', idRol='$rol' WHERE idEmpleado='$id'";
+            if ($id > 0) {
+                $stmt = $conn->prepare('UPDATE empleado SET nombre = ?, email = ?, password = ?, idRol = ? WHERE idEmpleado = ?');
+                $stmt->bind_param('sssii', $nombre, $email, $password, $rol, $id);
             } else {
-                $sql = "INSERT INTO empleado (nombre, email, password, idRol) VALUES ('$nombre', '$emailSql', '$password', '$rol')";
+                $stmt = $conn->prepare('INSERT INTO empleado (nombre, email, password, idRol) VALUES (?, ?, ?, ?)');
+                $stmt->bind_param('sssi', $nombre, $email, $password, $rol);
             }
 
-            if ($conn->query($sql)) {
-                $mensaje = $id !== '' ? '¡Empleado actualizado exitosamente!' : '¡Empleado creado exitosamente!';
+            if ($stmt && $stmt->execute()) {
+                $mensaje = $id > 0 ? '¡Empleado actualizado exitosamente!' : '¡Empleado creado exitosamente!';
                 $tipoMensaje = 'success';
                 $idMensaje = 'mensaje-empleado-exitoso';
             } else {
-                $mensaje = 'Error al guardar el empleado: ' . $conn->error;
+                $mensaje = 'Error al guardar el empleado: ' . ($stmt ? $stmt->error : $conn->error);
+            }
+            if ($stmt) {
+                $stmt->close();
             }
         }
     }
 
     if ($accion === 'eliminar_empleado') {
-        $id = $_POST['id'] ?? 0;
-        $sql = "DELETE FROM empleado WHERE idEmpleado='$id'";
-        if ($conn->query($sql)) {
+        $id = filter_var($_POST['id'] ?? null, FILTER_VALIDATE_INT);
+        $stmt = $conn->prepare('DELETE FROM empleado WHERE idEmpleado = ?');
+        $stmt->bind_param('i', $id);
+        if ($stmt->execute()) {
             $mensaje = 'Empleado eliminado.';
         } else {
-            $mensaje = 'Error al eliminar el empleado: ' . $conn->error;
+            $mensaje = 'Error al eliminar el empleado: ' . $stmt->error;
         }
+        $stmt->close();
     }
 }
 
@@ -217,30 +244,42 @@ $editCliente = $_GET['edit_cliente'] ?? null;
 $editEmpleado = $_GET['edit_empleado'] ?? null;
 
 $habitacionEdit = null;
-if ($editHabitacion) {
-    $result = $conn->query("SELECT * FROM habitacion WHERE idHabitacion='$editHabitacion' LIMIT 1");
+if (is_scalar($editHabitacion) && ($idEdicion = filter_var($editHabitacion, FILTER_VALIDATE_INT)) && $idEdicion > 0) {
+    $stmt = $conn->prepare('SELECT * FROM habitacion WHERE idHabitacion = ? LIMIT 1');
+    $stmt->bind_param('i', $idEdicion);
+    $stmt->execute();
+    $result = $stmt->get_result();
     if ($result && $result->num_rows > 0) {
         $habitacionEdit = $result->fetch_assoc();
     }
+    $stmt->close();
 }
 
 $clienteEdit = null;
-if ($editCliente) {
-    $result = $conn->query("SELECT * FROM cliente WHERE idCliente='$editCliente' LIMIT 1");
+if (is_scalar($editCliente) && ($idEdicion = filter_var($editCliente, FILTER_VALIDATE_INT)) && $idEdicion > 0) {
+    $stmt = $conn->prepare('SELECT * FROM cliente WHERE idCliente = ? LIMIT 1');
+    $stmt->bind_param('i', $idEdicion);
+    $stmt->execute();
+    $result = $stmt->get_result();
     if ($result && $result->num_rows > 0) {
         $clienteEdit = $result->fetch_assoc();
     }
+    $stmt->close();
 }
 
 $empleadoEdit = null;
-if ($editEmpleado) {
-    $result = $conn->query("SELECT * FROM empleado WHERE idEmpleado='$editEmpleado' LIMIT 1");
+if (is_scalar($editEmpleado) && ($idEdicion = filter_var($editEmpleado, FILTER_VALIDATE_INT)) && $idEdicion > 0) {
+    $stmt = $conn->prepare('SELECT * FROM empleado WHERE idEmpleado = ? LIMIT 1');
+    $stmt->bind_param('i', $idEdicion);
+    $stmt->execute();
+    $result = $stmt->get_result();
     if ($result && $result->num_rows > 0) {
         $empleadoEdit = $result->fetch_assoc();
     }
+    $stmt->close();
 }
 
-$reservaColumns = getColumnList($conn, 'reserva');
+$reservaColumns = getReservaColumnList($conn);
 $fechaInicioCol = detectarColumnaFecha($reservaColumns, ['fechaInicio', 'fecha_inicio', 'fecha_inicial', 'fechaEntrada', 'fecha_entrada']) ?? 'fechaIngreso';
 $fechaFinCol = detectarColumnaFecha($reservaColumns, ['fechaFin', 'fecha_fin', 'fecha_final', 'fechaSalida', 'fecha_salida']) ?? 'fechaSalida';
 $columnaInicioReserva = $fechaInicioCol ? "r.`$fechaInicioCol`" : 'r.fechaIngreso';
@@ -278,27 +317,38 @@ $paginaReservas = is_scalar($paginaReservaEntrada)
 $paginaReservas = $paginaReservas ?: 1;
 $condicionEstado = $estadoFiltroReserva === ''
     ? ''
-    : ' WHERE (' . $estadoReservaSql . ") = '" . $conn->real_escape_string($estadoFiltroReserva) . "'";
-$conteoReservas = $conn->query("SELECT COUNT(*) AS total FROM reserva r" . $condicionEstado);
-if (!$conteoReservas) {
-    die('No se pudo contar las reservas: ' . $conn->error);
+    : ' WHERE (' . $estadoReservaSql . ') = ?';
+$conteoReservas = $conn->prepare('SELECT COUNT(*) AS total FROM reserva r' . $condicionEstado);
+if ($estadoFiltroReserva !== '') {
+    $conteoReservas->bind_param('s', $estadoFiltroReserva);
 }
-$totalReservas = (int) $conteoReservas->fetch_assoc()['total'];
+if (!$conteoReservas->execute()) {
+    die('No se pudo contar las reservas: ' . $conteoReservas->error);
+}
+$resultadoConteoReservas = $conteoReservas->get_result();
+$totalReservas = (int) $resultadoConteoReservas->fetch_assoc()['total'];
+$conteoReservas->close();
 $reservasPorPagina = 10;
 $totalPaginasReservas = max(1, (int) ceil($totalReservas / $reservasPorPagina));
 $paginaReservas = min($paginaReservas, $totalPaginasReservas);
 $inicioReservas = ($paginaReservas - 1) * $reservasPorPagina;
-$reservasActivas = $conn->query(
+$reservasActivas = $conn->prepare(
     "SELECT r.*, h.numero, h.idCategoria, c.nombre AS nombreCliente
      FROM reserva r
      LEFT JOIN habitacion h ON h.idHabitacion = r.idHabitacion
      LEFT JOIN cliente c ON c.idCliente = r.idCliente" .
     $condicionEstado .
-    " ORDER BY r.idReserva DESC LIMIT $reservasPorPagina OFFSET $inicioReservas"
+    ' ORDER BY r.idReserva DESC LIMIT ? OFFSET ?'
 );
-if (!$reservasActivas) {
-    die('No se pudieron cargar las reservas: ' . $conn->error);
+if ($estadoFiltroReserva !== '') {
+    $reservasActivas->bind_param('sii', $estadoFiltroReserva, $reservasPorPagina, $inicioReservas);
+} else {
+    $reservasActivas->bind_param('ii', $reservasPorPagina, $inicioReservas);
 }
+if (!$reservasActivas->execute()) {
+    die('No se pudieron cargar las reservas: ' . $reservasActivas->error);
+}
+$reservasActivas = $reservasActivas->get_result();
 ?>
 <!DOCTYPE html>
 <html lang="es">
